@@ -229,6 +229,263 @@ fn test_token_metadata() {
     assert_eq!(client.symbol(), String::from_str(&env, "WRAP"));
 }
 
+// ─── Issue #84: extend_ttl tests ────────────────────────────────────────────
+
+#[test]
+fn test_extend_ttl_existing_wrap() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[9u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let hash = BytesN::from_array(&env, &[42u8; 32]);
+    let archetype = symbol_short!("arch");
+    let period = 202512u64;
+
+    let sig = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &hash,
+    );
+    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+
+    // Anyone can call extend_ttl — no auth required
+    client.extend_ttl(&user, &period);
+
+    // Record should still be readable after extending TTL
+    let wrap = client.get_wrap(&user, &period).unwrap();
+    assert_eq!(wrap.data_hash, hash);
+}
+
+#[test]
+fn test_extend_ttl_nonexistent_wrap_does_not_panic() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let pubkey = BytesN::from_array(&env, &[1u8; 32]);
+    client.initialize(&admin, &pubkey);
+
+    let user = Address::generate(&env);
+    // Should not panic even if no wrap exists for this user/period
+    client.extend_ttl(&user, &9999);
+}
+
+// ─── Issue #81: concurrent mints for different users same period ────────────
+
+#[test]
+fn test_concurrent_mints_different_users_same_period() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[10u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let period = 202512u64;
+    let archetype = symbol_short!("arch");
+    let hash_a = BytesN::from_array(&env, &[10u8; 32]);
+    let hash_b = BytesN::from_array(&env, &[20u8; 32]);
+
+    let sig_a = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user_a,
+        period,
+        &archetype,
+        &hash_a,
+    );
+    let sig_b = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user_b,
+        period,
+        &archetype,
+        &hash_b,
+    );
+
+    // Both mints for the same period should succeed
+    client.mint_wrap(&user_a, &period, &archetype, &hash_a, &sig_a);
+    client.mint_wrap(&user_b, &period, &archetype, &hash_b, &sig_b);
+
+    // Records are independent
+    let wrap_a = client.get_wrap(&user_a, &period).unwrap();
+    let wrap_b = client.get_wrap(&user_b, &period).unwrap();
+    assert_eq!(wrap_a.data_hash, hash_a);
+    assert_eq!(wrap_b.data_hash, hash_b);
+    assert_ne!(wrap_a.data_hash, wrap_b.data_hash);
+
+    // Individual balances are correct
+    assert_eq!(client.balance_of(&user_a), 1);
+    assert_eq!(client.balance_of(&user_b), 1);
+
+    // Each user's record doesn't affect the other
+    assert!(client.get_wrap(&user_a, &period).is_some());
+    assert!(client.get_wrap(&user_b, &period).is_some());
+}
+
+// ─── Issue #75: structured event verification ──────────────────────────────
+
+#[test]
+fn test_mint_event_structured_matching() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[11u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let period = 202512u64;
+    let archetype = symbol_short!("arch");
+    let hash = BytesN::from_array(&env, &[42u8; 32]);
+
+    let sig = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &hash,
+    );
+    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+
+    // Event schema: topics = (Symbol("mint"), Address, u64), data = Symbol
+    let events = env.events().all();
+    let last_event = events.last().expect("Expected at least one event");
+    let (event_contract, topics, data) = last_event;
+
+    // Verify event is emitted by the correct contract
+    assert_eq!(event_contract, contract_id);
+
+    // Verify topic count — mint events must have exactly 3 topics
+    assert_eq!(topics.len(), 3, "Mint event must have exactly 3 topics");
+
+    // Verify each topic by type and value
+    let topic_0: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let topic_1: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    let topic_2: u64 = topics.get(2).unwrap().try_into_val(&env).unwrap();
+
+    assert_eq!(
+        topic_0,
+        symbol_short!("mint"),
+        "Topic 0 must be 'mint' Symbol"
+    );
+    assert_eq!(topic_1, user, "Topic 1 must be the user Address");
+    assert_eq!(topic_2, period, "Topic 2 must be the period u64");
+
+    // Verify data is the archetype Symbol
+    let event_data: Symbol = data.try_into_val(&env).unwrap();
+    assert_eq!(
+        event_data, archetype,
+        "Event data must be the archetype Symbol"
+    );
+}
+
+#[test]
+fn test_mint_events_multiple_users_correct_schema() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[12u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let archetype_a = symbol_short!("builder");
+    let archetype_b = symbol_short!("defi");
+    let hash_a = BytesN::from_array(&env, &[10u8; 32]);
+    let hash_b = BytesN::from_array(&env, &[20u8; 32]);
+    let period_a = 202501u64;
+    let period_b = 202502u64;
+
+    let sig_a = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user_a,
+        period_a,
+        &archetype_a,
+        &hash_a,
+    );
+    let sig_b = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user_b,
+        period_b,
+        &archetype_b,
+        &hash_b,
+    );
+
+    client.mint_wrap(&user_a, &period_a, &archetype_a, &hash_a, &sig_a);
+    client.mint_wrap(&user_b, &period_b, &archetype_b, &hash_b, &sig_b);
+
+    let events = env.events().all();
+
+    // Collect mint events emitted by our contract
+    let mut mint_events = soroban_sdk::vec![&env];
+    for event in events.iter() {
+        let (addr, topics, _data) = &event;
+        if *addr == contract_id && topics.len() == 3 {
+            let t: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&env);
+            if t.map_or(false, |s| s == symbol_short!("mint")) {
+                mint_events.push_back(event.clone());
+            }
+        }
+    }
+
+    assert_eq!(mint_events.len(), 2, "Expected exactly 2 mint events");
+
+    // Verify first mint event (user_a)
+    let (_, topics_a, data_a) = mint_events.get(0).unwrap();
+    let ev_user_a: Address = topics_a.get(1).unwrap().try_into_val(&env).unwrap();
+    let ev_period_a: u64 = topics_a.get(2).unwrap().try_into_val(&env).unwrap();
+    let ev_arch_a: Symbol = data_a.try_into_val(&env).unwrap();
+    assert_eq!(ev_user_a, user_a);
+    assert_eq!(ev_period_a, period_a);
+    assert_eq!(ev_arch_a, archetype_a);
+
+    // Verify second mint event (user_b)
+    let (_, topics_b, data_b) = mint_events.get(1).unwrap();
+    let ev_user_b: Address = topics_b.get(1).unwrap().try_into_val(&env).unwrap();
+    let ev_period_b: u64 = topics_b.get(2).unwrap().try_into_val(&env).unwrap();
+    let ev_arch_b: Symbol = data_b.try_into_val(&env).unwrap();
+    assert_eq!(ev_user_b, user_b);
+    assert_eq!(ev_period_b, period_b);
+    assert_eq!(ev_arch_b, archetype_b);
+}
+
 // ─── Issue #80: verify_data tests ───────────────────────────────────────────
 
 #[test]

@@ -156,6 +156,29 @@ impl StellarWrapContract {
         e.storage().persistent().get(&DataKey::Wrap(user, period))
     }
 
+    /// Extend TTL for a user's wrap record and instance storage.
+    /// Public — anyone can call this to keep records alive.
+    pub fn extend_ttl(e: Env, user: Address, period: u64) {
+        let wrap_key = DataKey::Wrap(user.clone(), period);
+        let ttl = 17280 * 365; // ~1 year in ledgers
+
+        if e.storage().persistent().has(&wrap_key) {
+            e.storage().persistent().extend_ttl(&wrap_key, ttl, ttl);
+        }
+
+        let count_key = DataKey::WrapCount(user.clone());
+        if e.storage().persistent().has(&count_key) {
+            e.storage().persistent().extend_ttl(&count_key, ttl, ttl);
+        }
+
+        let latest_key = DataKey::LatestPeriod(user);
+        if e.storage().persistent().has(&latest_key) {
+            e.storage().persistent().extend_ttl(&latest_key, ttl, ttl);
+        }
+
+        e.storage().instance().extend_ttl(ttl, ttl);
+    }
+
     pub fn get_admin(e: Env) -> Option<Address> {
         // This stays .instance() because initialize() uses instance()
         e.storage().instance().get(&DataKey::Admin)

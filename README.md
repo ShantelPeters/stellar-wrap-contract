@@ -68,6 +68,49 @@ This project is designed to support the growth of the Stellar network by:
 
 ---
 
+## 🏗️ Architecture
+
+The diagram below shows how on-chain and off-chain components interact in the Stellar Wrap system:
+
+```mermaid
+sequenceDiagram
+    participant Backend as Backend Service
+    participant Admin as Admin Key
+    participant User as User Wallet
+    participant Contract as Soroban Contract
+    participant Frontend as Frontend App
+
+    Note over Backend: 1. Generate wrap data
+    Backend->>Backend: Analyze user's on-chain activity
+    Backend->>Backend: Compute data_hash (SHA256 of JSON)
+    Backend->>Backend: Assign archetype persona
+
+    Note over Backend,Admin: 2. Sign with admin key
+    Backend->>Admin: Sign(contract_id + user + period + archetype + data_hash)
+    Admin-->>Backend: Ed25519 signature
+
+    Note over Backend,User: 3. Deliver to user
+    Backend-->>User: signature + period + archetype + data_hash
+
+    Note over User,Contract: 4. User claims on-chain
+    User->>Contract: mint_wrap(user, period, archetype, data_hash, signature)
+    Contract->>Contract: Verify user auth (require_auth)
+    Contract->>Contract: Verify admin signature (ed25519_verify)
+    Contract->>Contract: Check no duplicate (Wrap key)
+    Contract->>Contract: Store WrapRecord (persistent)
+    Contract->>Contract: Update balance & latest period
+    Contract-->>User: Event: (mint, user, period) → archetype
+
+    Note over Frontend,Contract: 5. Frontend reads data
+    Frontend->>Contract: get_wrap(user, period)
+    Contract-->>Frontend: WrapRecord {timestamp, data_hash, archetype, period}
+    Frontend->>Contract: balance_of(user)
+    Contract-->>Frontend: wrap count
+    Frontend->>Frontend: Display persona & stats
+```
+
+---
+
 ## 🛠️ Tech Stack
 
 - **Language:** Rust
