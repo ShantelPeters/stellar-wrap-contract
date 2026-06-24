@@ -16,7 +16,8 @@ pub enum ContractError {
     NotInitialized = 2,
     Unauthorized = 3,
     WrapAlreadyExists = 4,
-    InvalidSignature = 5,
+    WrapNotFound = 5,
+    InvalidSignature = 6,
 }
 
 #[contract]
@@ -121,6 +122,34 @@ impl StellarWrapContract {
         // 7. Emit Event
         e.events()
             .publish((symbol_short!("mint"), user, period), archetype);
+    }
+
+    /// Admin-only revocation for incorrect or fraudulent records.
+    pub fn revoke_wrap(e: Env, user: Address, period: u64) {
+        let admin: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+        admin.require_auth();
+
+        let wrap_key = DataKey::Wrap(user.clone(), period);
+        if !e.storage().persistent().has(&wrap_key) {
+            panic_with_error!(e, ContractError::WrapNotFound);
+        }
+
+        e.storage().persistent().remove(&wrap_key);
+
+        let count_key = DataKey::WrapCount(user.clone());
+        let current_count: u32 = e.storage().persistent().get(&count_key).unwrap_or(0);
+        if current_count > 0 {
+            e.storage()
+                .persistent()
+                .set(&count_key, &(current_count - 1));
+        }
+
+        e.events()
+            .publish((symbol_short!("revoke"), user, period), true);
     }
 
     // --- Read Functions ---
