@@ -920,3 +920,35 @@ fn test_mint_guard_on_failure_leaves_no_residual_state() {
         assert!(!env.storage().persistent().has(&guard_key));
     });
 }
+
+// ─── Issue #39: update_admin event emission test ────────────────────────────
+
+#[test]
+fn test_update_admin_emits_event() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let pubkey = BytesN::from_array(&env, &[1u8; 32]);
+
+    client.initialize(&admin, &pubkey);
+    env.mock_all_auths();
+
+    client.update_admin(&new_admin);
+
+    let events = env.events().all();
+    let last_event = events.last().expect("Expected at least one event");
+    let (_, topics, data) = last_event;
+
+    let topic_0: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let topic_1: Symbol = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    assert_eq!(topic_0, symbol_short!("admin"));
+    assert_eq!(topic_1, symbol_short!("updated"));
+
+    // data is (old_admin, new_admin)
+    let (old_admin_val, new_admin_val): (Address, Address) = data.try_into_val(&env).unwrap();
+    assert_eq!(old_admin_val, admin);
+    assert_eq!(new_admin_val, new_admin);
+}

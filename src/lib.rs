@@ -54,6 +54,11 @@ impl StellarWrapContract {
 
         current_admin.require_auth();
         e.storage().instance().set(&DataKey::Admin, &new_admin);
+
+        e.events().publish(
+            (symbol_short!("admin"), symbol_short!("updated")),
+            (current_admin, new_admin),
+        );
     }
 
     /// Users claim their wrap using an Admin signature.
