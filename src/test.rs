@@ -8,6 +8,8 @@ use soroban_sdk::{
     Address, Bytes, BytesN, Env, String, Symbol, TryIntoVal,
 };
 
+use crate::storage_types::{DataKey, WrapRecord};
+
 fn sign_payload(
     env: &Env,
     signer: &SigningKey,
@@ -715,4 +717,121 @@ fn test_get_admin_before_init_returns_none() {
     let client = StellarWrapContractClient::new(&env, &contract_id);
 
     assert!(client.get_admin().is_none());
+}
+
+// ─── Issue #27: revoke_wrap tests ─────────────────────────────────────────
+
+#[test]
+fn test_revoke_wrap_flow_event_and_remint() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[13u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let period = 2026u64;
+    let archetype = symbol_short!("arch");
+    let hash_1 = BytesN::from_array(&env, &[31u8; 32]);
+    let hash_2 = BytesN::from_array(&env, &[32u8; 32]);
+
+    let sig_1 = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &hash_1,
+    );
+    client.mint_wrap(&user, &period, &archetype, &hash_1, &sig_1);
+    assert_eq!(client.balance_of(&user), 1);
+
+    client.revoke_wrap(&user, &period);
+
+    assert!(client.get_wrap(&user, &period).is_none());
+    assert_eq!(client.balance_of(&user), 0);
+
+    let events = env.events().all();
+    let last_event = events.last().expect("Expected revoke event");
+    let (_, topics, data) = last_event;
+
+    let event_topic: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let event_user: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    let event_period: u64 = topics.get(2).unwrap().try_into_val(&env).unwrap();
+    let revoked: bool = data.try_into_val(&env).unwrap();
+
+    assert_eq!(event_topic, symbol_short!("revoke"));
+    assert_eq!(event_user, user);
+    assert_eq!(event_period, period);
+    assert!(revoked);
+
+    // Re-mint the same period should now succeed after revoke.
+    let sig_2 = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &hash_2,
+    );
+    client.mint_wrap(&user, &period, &archetype, &hash_2, &sig_2);
+
+    let wrap = client.get_wrap(&user, &period).unwrap();
+    assert_eq!(wrap.data_hash, hash_2);
+    assert_eq!(client.balance_of(&user), 1);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_revoke_missing_wrap_fails() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let admin_pubkey = BytesN::from_array(&env, &[14u8; 32]);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    client.revoke_wrap(&user, &2026);
+}
+
+#[test]
+#[should_panic]
+fn test_revoke_requires_admin_auth() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let admin_pubkey = BytesN::from_array(&env, &[15u8; 32]);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+
+    // Seed one wrap record directly to isolate auth behavior on revoke.
+    env.as_contract(&contract_id, || {
+        let wrap_key = DataKey::Wrap(user.clone(), 2026);
+        let count_key = DataKey::WrapCount(user.clone());
+        let record = WrapRecord {
+            timestamp: env.ledger().timestamp(),
+            data_hash: BytesN::from_array(&env, &[16u8; 32]),
+            archetype: symbol_short!("arch"),
+            period: 2026,
+        };
+        env.storage().persistent().set(&wrap_key, &record);
+        env.storage().persistent().set(&count_key, &1u32);
+    });
+
+    // No auth mocking: admin.require_auth() must fail.
+    client.revoke_wrap(&user, &2026);
 }
