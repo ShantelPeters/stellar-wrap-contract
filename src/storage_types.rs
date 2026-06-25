@@ -25,4 +25,6 @@ pub enum DataKey {
     LatestPeriod(Address),
     /// Temporary, invocation-scoped reentrancy guard for mint flow
     MintGuard(Address),
+    /// Stores a Minter role: key is the minter Address, value is bool
+    Minter(Address),
 }

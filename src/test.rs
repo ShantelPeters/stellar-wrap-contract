@@ -64,7 +64,7 @@ fn test_minting_flow() {
         &archetype,
         &dummy_hash,
     );
-    client.mint_wrap(&user, &period, &archetype, &dummy_hash, &signature);
+    client.mint_wrap(&admin, &user, &period, &archetype, &dummy_hash, &signature);
 
     let wrap = client.get_wrap(&user, &period).unwrap();
     assert_eq!(wrap.data_hash, dummy_hash);
@@ -97,7 +97,7 @@ fn test_mint_emits_event() {
         &hash,
     );
 
-    client.mint_wrap(&user, &period, &archetype, &hash, &signature);
+    client.mint_wrap(&admin, &user, &period, &archetype, &hash, &signature);
 
     let events = env.events().all();
     let last_event = events.last().expect("No events found");
@@ -141,7 +141,7 @@ fn test_balance_of_and_count() {
         &archetype,
         &hash,
     );
-    client.mint_wrap(&user, &2021, &archetype, &hash, &sig1);
+    client.mint_wrap(&admin, &user, &2021, &archetype, &hash, &sig1);
 
     let sig2 = sign_payload(
         &env,
@@ -152,7 +152,7 @@ fn test_balance_of_and_count() {
         &archetype,
         &hash,
     );
-    client.mint_wrap(&user, &2022, &archetype, &hash, &sig2);
+    client.mint_wrap(&admin, &user, &2022, &archetype, &hash, &sig2);
 
     assert_eq!(client.balance_of(&user), 2);
 }
@@ -199,8 +199,8 @@ fn test_duplicate_period_fails() {
         &hash,
     );
 
-    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
-    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+    client.mint_wrap(&admin, &user, &period, &archetype, &hash, &sig);
+    client.mint_wrap(&admin, &user, &period, &archetype, &hash, &sig);
 }
 
 #[test]
@@ -263,7 +263,7 @@ fn test_extend_ttl_existing_wrap() {
         &archetype,
         &hash,
     );
-    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+    client.mint_wrap(&admin, &user, &period, &archetype, &hash, &sig);
 
     // Anyone can call extend_ttl — no auth required
     client.extend_ttl(&user, &period);
@@ -330,8 +330,8 @@ fn test_concurrent_mints_different_users_same_period() {
     );
 
     // Both mints for the same period should succeed
-    client.mint_wrap(&user_a, &period, &archetype, &hash_a, &sig_a);
-    client.mint_wrap(&user_b, &period, &archetype, &hash_b, &sig_b);
+    client.mint_wrap(&admin, &user_a, &period, &archetype, &hash_a, &sig_a);
+    client.mint_wrap(&admin, &user_b, &period, &archetype, &hash_b, &sig_b);
 
     // Records are independent
     let wrap_a = client.get_wrap(&user_a, &period).unwrap();
@@ -378,7 +378,7 @@ fn test_mint_event_structured_matching() {
         &archetype,
         &hash,
     );
-    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+    client.mint_wrap(&admin, &user, &period, &archetype, &hash, &sig);
 
     // Event schema: topics = (Symbol("mint"), Address, u64), data = Symbol
     let events = env.events().all();
@@ -453,8 +453,8 @@ fn test_mint_events_multiple_users_correct_schema() {
         &hash_b,
     );
 
-    client.mint_wrap(&user_a, &period_a, &archetype_a, &hash_a, &sig_a);
-    client.mint_wrap(&user_b, &period_b, &archetype_b, &hash_b, &sig_b);
+    client.mint_wrap(&admin, &user_a, &period_a, &archetype_a, &hash_a, &sig_a);
+    client.mint_wrap(&admin, &user_b, &period_b, &archetype_b, &hash_b, &sig_b);
 
     let events = env.events().all();
 
@@ -522,7 +522,7 @@ fn test_verify_data_matching_hash() {
         &archetype,
         &data_hash,
     );
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    client.mint_wrap(&admin, &user, &period, &archetype, &data_hash, &signature);
 
     assert!(client.verify_data(&user, &period, &data_json));
 }
@@ -556,7 +556,7 @@ fn test_verify_data_non_matching_hash() {
         &archetype,
         &data_hash,
     );
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    client.mint_wrap(&admin, &user, &period, &archetype, &data_hash, &signature);
 
     let tampered_data = Bytes::from_slice(&env, b"{\"score\":999}");
     assert!(!client.verify_data(&user, &period, &tampered_data));
@@ -626,9 +626,9 @@ fn test_get_latest_wrap_returns_most_recent() {
         &hash3,
     );
 
-    client.mint_wrap(&user, &2022, &archetype, &hash1, &sig1);
-    client.mint_wrap(&user, &2024, &archetype, &hash2, &sig2);
-    client.mint_wrap(&user, &2023, &archetype, &hash3, &sig3);
+    client.mint_wrap(&admin, &user, &2022, &archetype, &hash1, &sig1);
+    client.mint_wrap(&admin, &user, &2024, &archetype, &hash2, &sig2);
+    client.mint_wrap(&admin, &user, &2023, &archetype, &hash3, &sig3);
 
     let latest = client.get_latest_wrap(&user).unwrap();
     assert_eq!(latest.period, 2024);
@@ -676,7 +676,7 @@ fn test_get_latest_wrap_single_mint() {
         &archetype,
         &hash,
     );
-    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+    client.mint_wrap(&admin, &user, &period, &archetype, &hash, &sig);
 
     let latest = client.get_latest_wrap(&user).unwrap();
     assert_eq!(latest.period, 2025);
@@ -693,12 +693,13 @@ fn test_mint_wrap_before_init_fails() {
     let client = StellarWrapContractClient::new(&env, &contract_id);
     env.mock_all_auths();
 
+    let admin = Address::generate(&env);
     let user = Address::generate(&env);
     let hash = BytesN::from_array(&env, &[1u8; 32]);
     let archetype = symbol_short!("arch");
     let sig = BytesN::from_array(&env, &[0u8; 64]);
 
-    client.mint_wrap(&user, &2024, &archetype, &hash, &sig);
+    client.mint_wrap(&admin, &user, &2024, &archetype, &hash, &sig);
 }
 
 #[test]
@@ -752,7 +753,7 @@ fn test_revoke_wrap_flow_event_and_remint() {
         &archetype,
         &hash_1,
     );
-    client.mint_wrap(&user, &period, &archetype, &hash_1, &sig_1);
+    client.mint_wrap(&admin, &user, &period, &archetype, &hash_1, &sig_1);
     assert_eq!(client.balance_of(&user), 1);
 
     client.revoke_wrap(&user, &period);
@@ -784,7 +785,7 @@ fn test_revoke_wrap_flow_event_and_remint() {
         &archetype,
         &hash_2,
     );
-    client.mint_wrap(&user, &period, &archetype, &hash_2, &sig_2);
+    client.mint_wrap(&admin, &user, &period, &archetype, &hash_2, &sig_2);
 
     let wrap = client.get_wrap(&user, &period).unwrap();
     assert_eq!(wrap.data_hash, hash_2);
@@ -868,7 +869,7 @@ fn test_mint_guard_uses_temporary_storage_and_clears_on_success() {
         &data_hash,
     );
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    client.mint_wrap(&admin, &user, &period, &archetype, &data_hash, &signature);
 
     let guard_key = DataKey::MintGuard(user.clone());
     env.as_contract(&contract_id, || {
@@ -905,11 +906,11 @@ fn test_mint_guard_on_failure_leaves_no_residual_state() {
     );
 
     // First mint succeeds.
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    client.mint_wrap(&admin, &user, &period, &archetype, &data_hash, &signature);
 
     // Second mint panics (duplicate).
     let duplicate = catch_unwind(AssertUnwindSafe(|| {
-        client.mint_wrap(&user, &period, &archetype, &data_hash, &signature)
+        client.mint_wrap(&admin, &user, &period, &archetype, &data_hash, &signature)
     }));
     assert!(duplicate.is_err());
 
@@ -1023,7 +1024,7 @@ fn test_mint_wrap_zero_hash_rejected() {
 
     let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &zero_hash);
     // Must panic with InvalidDataHash
-    client.mint_wrap(&user, &period, &archetype, &zero_hash, &sig);
+    client.mint_wrap(&admin, &user, &period, &archetype, &zero_hash, &sig);
 }
 
 #[test]
@@ -1048,7 +1049,7 @@ fn test_mint_wrap_non_zero_hash_succeeds() {
     let period = 2024u64;
 
     let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &edge_hash);
-    client.mint_wrap(&user, &period, &archetype, &edge_hash, &sig);
+    client.mint_wrap(&admin, &user, &period, &archetype, &edge_hash, &sig);
 
     let wrap = client.get_wrap(&user, &period).unwrap();
     assert_eq!(wrap.data_hash, edge_hash);
@@ -1073,7 +1074,7 @@ fn test_mint_wrap_max_hash_succeeds() {
     let period = 2024u64;
 
     let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &max_hash);
-    client.mint_wrap(&user, &period, &archetype, &max_hash, &sig);
+    client.mint_wrap(&admin, &user, &period, &archetype, &max_hash, &sig);
 
     let wrap = client.get_wrap(&user, &period).unwrap();
     assert_eq!(wrap.data_hash, max_hash);
@@ -1095,4 +1096,119 @@ fn test_upgrade_requires_admin_auth() {
     // No auth mocked — must panic because admin did not authorize
     let fake_wasm = BytesN::from_array(&env, &[0u8; 32]);
     client.upgrade(&fake_wasm);
+}
+
+// ─── Issue #33: role-based access tests ─────────────────────────────────────
+
+#[test]
+fn test_add_and_remove_minter() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let minter = Address::generate(&env);
+    let pubkey = BytesN::from_array(&env, &[1u8; 32]);
+
+    client.initialize(&admin, &pubkey);
+    env.mock_all_auths();
+
+    assert!(!client.is_minter(&minter));
+    client.add_minter(&minter);
+    assert!(client.is_minter(&minter));
+    client.remove_minter(&minter);
+    assert!(!client.is_minter(&minter));
+}
+
+#[test]
+fn test_minter_can_mint() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[50u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let minter = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    client.add_minter(&minter);
+
+    let period = 2025u64;
+    let archetype = symbol_short!("arch");
+    let hash = BytesN::from_array(&env, &[50u8; 32]);
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash);
+
+    // Minter (not admin) calls mint_wrap
+    client.mint_wrap(&minter, &user, &period, &archetype, &hash, &sig);
+
+    let wrap = client.get_wrap(&user, &period).unwrap();
+    assert_eq!(wrap.data_hash, hash);
+}
+
+#[test]
+#[should_panic]
+fn test_non_minter_non_admin_cannot_mint() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[51u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let period = 2025u64;
+    let archetype = symbol_short!("arch");
+    let hash = BytesN::from_array(&env, &[51u8; 32]);
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash);
+
+    // attacker is not admin and not a registered minter
+    client.mint_wrap(&attacker, &user, &period, &archetype, &hash, &sig);
+}
+
+#[test]
+#[should_panic]
+fn test_add_minter_requires_admin_auth() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let minter = Address::generate(&env);
+    let pubkey = BytesN::from_array(&env, &[1u8; 32]);
+
+    client.initialize(&admin, &pubkey);
+    // No auth mocked
+    client.add_minter(&minter);
+}
+
+#[test]
+#[should_panic]
+fn test_remove_minter_requires_admin_auth() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let minter = Address::generate(&env);
+    let pubkey = BytesN::from_array(&env, &[1u8; 32]);
+
+    client.initialize(&admin, &pubkey);
+    env.mock_all_auths();
+    client.add_minter(&minter);
+
+    let env2 = Env::default();
+    let contract_id2 = env2.register_contract(None, StellarWrapContract);
+    let client2 = StellarWrapContractClient::new(&env2, &contract_id2);
+    client2.initialize(&admin, &pubkey);
+    // No auth mocked — must panic
+    client2.remove_minter(&minter);
 }

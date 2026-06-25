@@ -87,6 +87,46 @@ impl StellarWrapContract {
         );
     }
 
+    /// Add a minter address (admin-only).
+    ///
+    /// Minters can call `mint_wrap` without being the admin.
+    pub fn add_minter(e: Env, minter: Address) {
+        let admin: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+        admin.require_auth();
+        e.storage()
+            .instance()
+            .set(&DataKey::Minter(minter.clone()), &true);
+        e.events()
+            .publish((symbol_short!("role"), symbol_short!("add")), minter);
+    }
+
+    /// Remove a minter address (admin-only).
+    pub fn remove_minter(e: Env, minter: Address) {
+        let admin: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+        admin.require_auth();
+        e.storage()
+            .instance()
+            .remove(&DataKey::Minter(minter.clone()));
+        e.events()
+            .publish((symbol_short!("role"), symbol_short!("remove")), minter);
+    }
+
+    /// Check whether an address has the Minter role.
+    pub fn is_minter(e: Env, address: Address) -> bool {
+        e.storage()
+            .instance()
+            .get::<_, bool>(&DataKey::Minter(address))
+            .unwrap_or(false)
+    }
+
     /// Mint a soulbound wrap record for a user.
     ///
     /// The backend generates a payload of `(contract_id ‖ user ‖ period ‖ archetype ‖ data_hash)`,
@@ -118,13 +158,34 @@ impl StellarWrapContract {
     /// - [`ContractError::WrapAlreadyExists`] if a wrap for `(user, period)` already exists.
     pub fn mint_wrap(
         e: Env,
+        caller: Address,
         user: Address,
         period: u64,
         archetype: Symbol,
         data_hash: BytesN<32>,
         signature: BytesN<64>,
     ) {
-        // 1. Security: Ensure the user actually signed this transaction
+        // 1. Caller (admin or minter) must authorize this invocation.
+        caller.require_auth();
+
+        // 1a. Enforce caller holds admin or minter role.
+        {
+            let admin: Address = e
+                .storage()
+                .instance()
+                .get(&DataKey::Admin)
+                .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+            let is_minter = e
+                .storage()
+                .instance()
+                .get::<_, bool>(&DataKey::Minter(caller.clone()))
+                .unwrap_or(false);
+            if caller != admin && !is_minter {
+                panic_with_error!(e, ContractError::Unauthorized);
+            }
+        }
+
+        // 2. Security: Ensure the user actually signed this transaction
         user.require_auth();
 
         // 1b. Reentrancy guard in temporary storage.
