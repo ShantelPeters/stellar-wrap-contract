@@ -999,3 +999,100 @@ fn test_update_admin_by_non_admin_fails() {
 
     client.update_admin(&new_admin);
 }
+
+// ─── Issue #55: zero-hash and edge-case hash tests ──────────────────────────
+
+#[test]
+#[should_panic]
+fn test_mint_wrap_zero_hash_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[20u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+    let archetype = symbol_short!("arch");
+    let period = 2024u64;
+
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &zero_hash);
+    // Must panic with InvalidDataHash
+    client.mint_wrap(&user, &period, &archetype, &zero_hash, &sig);
+}
+
+#[test]
+fn test_mint_wrap_non_zero_hash_succeeds() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[21u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    // A hash with only the last byte set — not all-zero, should succeed
+    let mut hash_bytes = [0u8; 32];
+    hash_bytes[31] = 1;
+    let edge_hash = BytesN::from_array(&env, &hash_bytes);
+    let archetype = symbol_short!("arch");
+    let period = 2024u64;
+
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &edge_hash);
+    client.mint_wrap(&user, &period, &archetype, &edge_hash, &sig);
+
+    let wrap = client.get_wrap(&user, &period).unwrap();
+    assert_eq!(wrap.data_hash, edge_hash);
+}
+
+#[test]
+fn test_mint_wrap_max_hash_succeeds() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[22u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let max_hash = BytesN::from_array(&env, &[0xff; 32]);
+    let archetype = symbol_short!("arch");
+    let period = 2024u64;
+
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &max_hash);
+    client.mint_wrap(&user, &period, &archetype, &max_hash, &sig);
+
+    let wrap = client.get_wrap(&user, &period).unwrap();
+    assert_eq!(wrap.data_hash, max_hash);
+}
+
+// ─── Issue #30: upgrade authorization test ──────────────────────────────────
+
+#[test]
+#[should_panic]
+fn test_upgrade_requires_admin_auth() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let pubkey = BytesN::from_array(&env, &[1u8; 32]);
+    client.initialize(&admin, &pubkey);
+
+    // No auth mocked — must panic because admin did not authorize
+    let fake_wasm = BytesN::from_array(&env, &[0u8; 32]);
+    client.upgrade(&fake_wasm);
+}

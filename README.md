@@ -129,6 +129,18 @@ sequenceDiagram
 - ✅ Public query interface for retrieving wrap records
 - ✅ Event emission for minting actions
 - ✅ Prevention of duplicate wraps per user
+- ✅ Contract upgrade mechanism (admin-only WASM upgrade via `upgrade()`)
+
+### Upgrading the Contract
+
+The contract supports in-place WASM upgrades via Soroban's `update_current_contract_wasm`. All persistent storage (wrap records, admin key, etc.) is preserved across upgrades.
+
+**Process:**
+1. Upload the new WASM to the Stellar network and note its hash.
+2. Call `upgrade(new_wasm_hash)` — requires admin authorization.
+3. Soroban validates the hash against the uploaded blob and atomically replaces the code.
+
+Only the admin address can trigger an upgrade. Any call without valid admin authorization will be rejected.
 
 ---
 
