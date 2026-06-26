@@ -6,7 +6,7 @@ use soroban_sdk::{
 };
 
 mod storage_types;
-use storage_types::{ContractInfo, DataKey, WrapRecord};
+use storage_types::{ContractInfo, ContractStats, DataKey, WrapRecord};
 
 soroban_sdk::contractmeta!(
     key = "Description",
@@ -59,6 +59,9 @@ impl StellarWrapContract {
         e.storage()
             .instance()
             .set(&DataKey::AdminPubKey, &admin_pubkey);
+        e.storage()
+            .instance()
+            .set(&DataKey::SchemaVersion, &1u32);
     }
 
     /// Replace the current admin with a new address.
@@ -202,7 +205,20 @@ impl StellarWrapContract {
         // Clear guard on successful completion.
         e.storage().temporary().remove(&guard_key);
 
-        // 8. Emit Event
+        // 8. Update global counters
+        let total: u64 = e
+            .storage()
+            .instance()
+            .get(&DataKey::TotalMints)
+            .unwrap_or(0);
+        e.storage()
+            .instance()
+            .set(&DataKey::TotalMints, &(total + 1));
+        e.storage()
+            .instance()
+            .set(&DataKey::LastMintTimestamp, &e.ledger().timestamp());
+
+        // 9. Emit Event
         e.events()
             .publish((symbol_short!("mint"), user, period), archetype);
     }
@@ -310,6 +326,17 @@ impl StellarWrapContract {
                 .set(&count_key, &(current_count - 1));
         }
 
+        let total: u64 = e
+            .storage()
+            .instance()
+            .get(&DataKey::TotalMints)
+            .unwrap_or(0);
+        if total > 0 {
+            e.storage()
+                .instance()
+                .set(&DataKey::TotalMints, &(total - 1));
+        }
+
         e.events()
             .publish((symbol_short!("revoke"), user, period), true);
     }
@@ -412,6 +439,48 @@ impl StellarWrapContract {
     /// Return the current admin address, or `None` if the contract is not yet initialized.
     pub fn get_admin(e: Env) -> Option<Address> {
         e.storage().instance().get(&DataKey::Admin)
+    }
+
+    /// Return aggregate health metrics for admin monitoring and frontend dashboards.
+    ///
+    /// All fields are read from instance storage — no auth required.
+    ///
+    /// # Returns
+    /// A [`ContractStats`] struct containing:
+    /// - `total_mints`: current count of active (non-revoked) wraps across all users.
+    /// - `admin`: the current admin address.
+    /// - `is_initialized`: whether [`initialize`] has been called.
+    /// - `last_mint_timestamp`: ledger timestamp of the most recent successful mint, or `None`.
+    /// - `schema_version`: storage schema version set at initialization.
+    pub fn get_contract_stats(e: Env) -> ContractStats {
+        let admin: Option<Address> = e.storage().instance().get(&DataKey::Admin);
+        let is_initialized = admin.is_some();
+        let total_mints: u64 = e
+            .storage()
+            .instance()
+            .get(&DataKey::TotalMints)
+            .unwrap_or(0);
+        let last_mint_timestamp: Option<u64> =
+            e.storage().instance().get(&DataKey::LastMintTimestamp);
+        let schema_version: u32 = e
+            .storage()
+            .instance()
+            .get(&DataKey::SchemaVersion)
+            .unwrap_or(0);
+
+        ContractStats {
+            total_mints,
+            admin,
+            is_initialized,
+            last_mint_timestamp,
+            schema_version,
+        }
+    }
+
+    /// Return the ledger timestamp of the most recent successful mint, or `None` if no mint
+    /// has occurred yet.
+    pub fn get_last_mint_timestamp(e: Env) -> Option<u64> {
+        e.storage().instance().get(&DataKey::LastMintTimestamp)
     }
 
     /// Return the human-readable name of this token registry.

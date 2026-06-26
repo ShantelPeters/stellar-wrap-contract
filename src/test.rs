@@ -5,7 +5,7 @@ use super::*;
 use ed25519_dalek::{Signer, SigningKey};
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, Ledger as _},
     xdr::ToXdr,
     Address, Bytes, BytesN, Env, IntoVal, String, Symbol, TryIntoVal,
 };
@@ -1286,4 +1286,150 @@ fn test_update_wrap_zero_hash_rejected() {
     let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
     let sig2 = sign_update_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &zero_hash);
     client.update_wrap(&user, &period, &zero_hash, &archetype, &sig2);
+}
+
+// --- get_contract_stats / get_last_mint_timestamp tests ---
+
+#[test]
+fn test_get_contract_stats_before_init() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let stats = client.get_contract_stats();
+    assert!(!stats.is_initialized);
+    assert!(stats.admin.is_none());
+    assert_eq!(stats.total_mints, 0);
+    assert!(stats.last_mint_timestamp.is_none());
+    assert_eq!(stats.schema_version, 0);
+}
+
+#[test]
+fn test_get_contract_stats_after_init() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[35u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+
+    let stats = client.get_contract_stats();
+    assert!(stats.is_initialized);
+    assert_eq!(stats.admin.unwrap(), admin);
+    assert_eq!(stats.total_mints, 0);
+    assert!(stats.last_mint_timestamp.is_none());
+    assert_eq!(stats.schema_version, 1);
+}
+
+#[test]
+fn test_get_contract_stats_after_multiple_mints() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[36u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let archetype = symbol_short!("arch");
+
+    // First mint at timestamp 1000
+    env.ledger().with_mut(|l| l.timestamp = 1000);
+    let hash1 = BytesN::from_array(&env, &[10u8; 32]);
+    let sig1 = sign_payload(&env, &signing_key, &contract_id, &user, 2024u64, &archetype, &hash1);
+    client.mint_wrap(&user, &2024u64, &archetype, &hash1, &sig1);
+
+    let stats = client.get_contract_stats();
+    assert_eq!(stats.total_mints, 1);
+    assert_eq!(stats.last_mint_timestamp, Some(1000));
+
+    // Second mint at timestamp 2000
+    env.ledger().with_mut(|l| l.timestamp = 2000);
+    let hash2 = BytesN::from_array(&env, &[20u8; 32]);
+    let sig2 = sign_payload(&env, &signing_key, &contract_id, &user, 2025u64, &archetype, &hash2);
+    client.mint_wrap(&user, &2025u64, &archetype, &hash2, &sig2);
+
+    let stats = client.get_contract_stats();
+    assert_eq!(stats.total_mints, 2);
+    assert_eq!(stats.last_mint_timestamp, Some(2000));
+}
+
+#[test]
+fn test_get_contract_stats_after_revoke() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[37u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let archetype = symbol_short!("arch");
+    let hash = BytesN::from_array(&env, &[11u8; 32]);
+    let period = 2024u64;
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash);
+    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+
+    let stats = client.get_contract_stats();
+    assert_eq!(stats.total_mints, 1);
+
+    client.revoke_wrap(&user, &period);
+
+    let stats = client.get_contract_stats();
+    assert_eq!(stats.total_mints, 0);
+}
+
+#[test]
+fn test_get_last_mint_timestamp_before_any_mint() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[38u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+
+    assert!(client.get_last_mint_timestamp().is_none());
+}
+
+#[test]
+fn test_get_last_mint_timestamp_updates_on_each_mint() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[39u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let archetype = symbol_short!("arch");
+
+    env.ledger().with_mut(|l| l.timestamp = 5000);
+    let hash1 = BytesN::from_array(&env, &[12u8; 32]);
+    let sig1 = sign_payload(&env, &signing_key, &contract_id, &user, 2024u64, &archetype, &hash1);
+    client.mint_wrap(&user, &2024u64, &archetype, &hash1, &sig1);
+    assert_eq!(client.get_last_mint_timestamp(), Some(5000));
+
+    env.ledger().with_mut(|l| l.timestamp = 9999);
+    let hash2 = BytesN::from_array(&env, &[13u8; 32]);
+    let sig2 = sign_payload(&env, &signing_key, &contract_id, &user, 2025u64, &archetype, &hash2);
+    client.mint_wrap(&user, &2025u64, &archetype, &hash2, &sig2);
+    assert_eq!(client.get_last_mint_timestamp(), Some(9999));
 }
