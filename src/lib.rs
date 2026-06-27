@@ -5,6 +5,9 @@ use soroban_sdk::{
     Bytes, BytesN, Env, String, Symbol,
 };
 
+mod constants;
+use constants::{DEFAULT_COUNT, DEFAULT_LATEST_PERIOD, DEFAULT_TTL_LEDGERS};
+
 mod storage_types;
 use storage_types::{ContractInfo, DataKey, WrapRecord};
 
@@ -173,30 +176,37 @@ impl StellarWrapContract {
         };
 
         // Store in persistent and extend TTL to ~1 year
-        let ttl_one_year = 17280 * 365;
         e.storage().persistent().set(&wrap_key, &record);
         e.storage()
             .persistent()
-            .extend_ttl(&wrap_key, ttl_one_year, ttl_one_year);
+            .extend_ttl(&wrap_key, DEFAULT_TTL_LEDGERS, DEFAULT_TTL_LEDGERS);
 
         // 7. Update Balance
         let count_key = DataKey::WrapCount(user.clone());
-        let current_count: u32 = e.storage().persistent().get(&count_key).unwrap_or(0);
+        let current_count: u32 = e
+            .storage()
+            .persistent()
+            .get(&count_key)
+            .unwrap_or(DEFAULT_COUNT);
         e.storage()
             .persistent()
             .set(&count_key, &(current_count + 1));
         e.storage()
             .persistent()
-            .extend_ttl(&count_key, ttl_one_year, ttl_one_year);
+            .extend_ttl(&count_key, DEFAULT_TTL_LEDGERS, DEFAULT_TTL_LEDGERS);
 
         // 7b. Track latest period for get_latest_wrap
         let latest_key = DataKey::LatestPeriod(user.clone());
-        let current_latest: u64 = e.storage().persistent().get(&latest_key).unwrap_or(0);
+        let current_latest: u64 = e
+            .storage()
+            .persistent()
+            .get(&latest_key)
+            .unwrap_or(DEFAULT_LATEST_PERIOD);
         if period > current_latest {
             e.storage().persistent().set(&latest_key, &period);
             e.storage()
                 .persistent()
-                .extend_ttl(&latest_key, ttl_one_year, ttl_one_year);
+                .extend_ttl(&latest_key, DEFAULT_TTL_LEDGERS, DEFAULT_TTL_LEDGERS);
         }
 
         // Clear guard on successful completion.
@@ -276,11 +286,10 @@ impl StellarWrapContract {
             period,
         };
 
-        let ttl_one_year = 17280 * 365;
         e.storage().persistent().set(&wrap_key, &updated);
         e.storage()
             .persistent()
-            .extend_ttl(&wrap_key, ttl_one_year, ttl_one_year);
+            .extend_ttl(&wrap_key, DEFAULT_TTL_LEDGERS, DEFAULT_TTL_LEDGERS);
 
         e.events()
             .publish((symbol_short!("update"), user, period), new_archetype);
@@ -303,7 +312,11 @@ impl StellarWrapContract {
         e.storage().persistent().remove(&wrap_key);
 
         let count_key = DataKey::WrapCount(user.clone());
-        let current_count: u32 = e.storage().persistent().get(&count_key).unwrap_or(0);
+        let current_count: u32 = e
+            .storage()
+            .persistent()
+            .get(&count_key)
+            .unwrap_or(DEFAULT_COUNT);
         if current_count > 0 {
             e.storage()
                 .persistent()
@@ -341,7 +354,7 @@ impl StellarWrapContract {
         e.storage()
             .persistent()
             .get::<_, u32>(&count_key)
-            .unwrap_or(0) as i128
+            .unwrap_or(DEFAULT_COUNT) as i128
     }
 
     /// Verify that the SHA-256 hash of `data` matches the `data_hash` stored in a wrap record.
@@ -390,23 +403,28 @@ impl StellarWrapContract {
     /// - `period`: The specific wrap period whose record TTL will be extended.
     pub fn extend_ttl(e: Env, user: Address, period: u64) {
         let wrap_key = DataKey::Wrap(user.clone(), period);
-        let ttl = 17280 * 365; // ~1 year in ledgers
 
         if e.storage().persistent().has(&wrap_key) {
-            e.storage().persistent().extend_ttl(&wrap_key, ttl, ttl);
+            e.storage()
+                .persistent()
+                .extend_ttl(&wrap_key, DEFAULT_TTL_LEDGERS, DEFAULT_TTL_LEDGERS);
         }
 
         let count_key = DataKey::WrapCount(user.clone());
         if e.storage().persistent().has(&count_key) {
-            e.storage().persistent().extend_ttl(&count_key, ttl, ttl);
+            e.storage()
+                .persistent()
+                .extend_ttl(&count_key, DEFAULT_TTL_LEDGERS, DEFAULT_TTL_LEDGERS);
         }
 
         let latest_key = DataKey::LatestPeriod(user);
         if e.storage().persistent().has(&latest_key) {
-            e.storage().persistent().extend_ttl(&latest_key, ttl, ttl);
+            e.storage()
+                .persistent()
+                .extend_ttl(&latest_key, DEFAULT_TTL_LEDGERS, DEFAULT_TTL_LEDGERS);
         }
 
-        e.storage().instance().extend_ttl(ttl, ttl);
+        e.storage().instance().extend_ttl(DEFAULT_TTL_LEDGERS, DEFAULT_TTL_LEDGERS);
     }
 
     /// Return the current admin address, or `None` if the contract is not yet initialized.
