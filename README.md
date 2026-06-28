@@ -114,7 +114,7 @@ sequenceDiagram
 ## 🛠️ Tech Stack
 
 - **Language:** Rust
-- **Smart Contract Framework:** Soroban SDK v20.0.0
+- **Smart Contract Framework:** Soroban SDK v21.7.1
 - **Build Tool:** Cargo
 - **Target:** WebAssembly (WASM) for Soroban runtime
 - **Testing:** Soroban SDK testutils
@@ -124,6 +124,101 @@ sequenceDiagram
 ## 🗺️ Contract Features
 
 - ✅ Admin-controlled initialization
+
+---
+
+## ✅ Added (v0.1.0)
+
+
+### Public contract functions introduced in v0.1.0
+-->
+
+- `initialize(e, admin, admin_pubkey)`
+- `update_admin(e, new_admin)`
+- `mint_wrap(e, user, period, archetype, data_hash, signature)`
+- `update_wrap(e, user, period, new_data_hash, new_archetype, signature)`
+- `revoke_wrap(e, user, period)`
+- `get_wrap(e, user, period)`
+- `balance_of(e, id)`
+- `verify_data(e, user, period, data)`
+- `get_latest_wrap(e, user)`
+- `extend_ttl(e, user, period)`
+- `get_admin(e)`
+- `name(e)`
+- `symbol(e)`
+- `decimals(e)`
+- `contract_info(e)`
+- `upgrade(e, new_wasm_hash)`
+
+### Storage schema introduced in v0.1.0
+
+#### `DataKey` variants
+- `Admin`
+- `AdminPubKey`
+- `Wrap(Address, u64)`
+- `WrapCount(Address)`
+- `LatestPeriod(Address)`
+- `MintGuard(Address)`
+
+#### `WrapRecord` fields
+- `timestamp: u64`
+- `data_hash: BytesN<32>`
+- `archetype: Symbol`
+- `period: u64`
+
+### Tooling / build details
+- Soroban SDK: **21.7.1**
+- Rust edition: **2021**
+
+### Deployed testnet contract
+- Testnet contract address: **TBD**
+
+---
+
+## ✅ Added (v0.1.0) (contract and storage schema)
+
+### Public contract functions introduced in v0.1.0
+
+- `initialize(e, admin, admin_pubkey)`
+- `update_admin(e, new_admin)`
+- `mint_wrap(e, user, period, archetype, data_hash, signature)`
+- `update_wrap(e, user, period, new_data_hash, new_archetype, signature)`
+- `revoke_wrap(e, user, period)`
+- `get_wrap(e, user, period)`
+- `balance_of(e, id)`
+- `verify_data(e, user, period, data)`
+- `get_latest_wrap(e, user)`
+- `extend_ttl(e, user, period)`
+- `get_admin(e)`
+- `name(e)`
+- `symbol(e)`
+- `decimals(e)`
+- `contract_info(e)`
+- `upgrade(e, new_wasm_hash)`
+
+### Storage schema introduced in v0.1.0
+
+#### `DataKey` variants
+- `Admin`
+- `AdminPubKey`
+- `Wrap(Address, u64)`
+- `WrapCount(Address)`
+- `LatestPeriod(Address)`
+- `MintGuard(Address)`
+
+#### `WrapRecord` fields
+- `timestamp: u64`
+- `data_hash: BytesN<32>`
+- `archetype: Symbol`
+- `period: u64`
+
+### Tooling / build details
+- Soroban SDK: **21.7.1**
+- Rust edition: **2021**
+
+### Deployed testnet contract
+- Testnet contract address: **TBD**
+
 - ✅ Soulbound token (SBT) minting with authorization checks
 - ✅ Wrap record storage (timestamp, data hash, archetype)
 - ✅ Public query interface for retrieving wrap records
@@ -145,6 +240,7 @@ Only the admin address can trigger an upgrade. Any call without valid admin auth
 ---
 
 ## 📊 Design Decision: On-Chain `WrapCount` and `balance_of`
+
 
 **Issue [#40](https://github.com/zintarh/stellar-wrap-contract/issues/40) — Considered removing `WrapCount` storage**
 
@@ -178,6 +274,12 @@ The mint reentrancy guard uses Soroban temporary storage, not persistent storage
 - On successful mint, the guard key is removed explicitly.
 - On failure paths (panic), the temporary entry is not persisted forever and is naturally cleaned up by Soroban TTL.
 
+## 🗄️ Storage Architecture
+
+This repository documents the storage key layout, TTL strategy, and key encoding in:
+
+- [`STORAGE.md`](./STORAGE.md)
+
 ## 📝 Contract Interface
 
 ### Functions
@@ -194,10 +296,13 @@ The mint reentrancy guard uses Soroban temporary storage, not persistent storage
 
 ### Error Codes
 
-| Code | Error |
-| --- | --- |
-| 1 | `AlreadyInitialized` |
-| 2 | `NotInitialized` |
-| 3 | `Unauthorized` |
-| 4 | `WrapAlreadyExists` |
-| 5 | `InvalidSignature` |
+For contract failures surfaced as `Error(Contract, #N)`, see:
+
+- [Error Reference (ERRORS.md)](./ERRORS.md)
+
+## Error Reference
+
+This repository’s contract errors are defined by `ContractError` in `src/lib.rs` (variants **1–7**).
+
+Full details, common causes, resolution steps, and Soroban CLI examples are documented in [ERRORS.md](./ERRORS.md).
+

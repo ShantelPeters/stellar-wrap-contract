@@ -1,7 +1,11 @@
 # Security Recommendations for Stellar Wrap Contract
 
 ## Overview
-This document outlines critical security enhancements needed before mainnet deployment. The current implementation has a **stub signature verification** that must be replaced with proper cryptographic verification.
+This document outlines critical security enhancements needed before mainnet deployment.
+
+For developer-facing error handling (e.g. `Error(Contract, #4)`), see the [Error Reference (ERRORS.md)](./ERRORS.md).
+
+
 
 ---
 
