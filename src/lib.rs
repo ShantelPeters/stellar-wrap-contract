@@ -82,7 +82,11 @@ impl StellarWrapContract {
         e.storage().instance().set(&DataKey::Admin, &new_admin);
 
         e.events().publish(
-            (symbol_short!("admin"), symbol_short!("updated")),
+            (
+                symbol_short!("v1"),
+                symbol_short!("admin"),
+                symbol_short!("updated"),
+            ),
             (current_admin, new_admin),
         );
     }
@@ -203,8 +207,10 @@ impl StellarWrapContract {
         e.storage().temporary().remove(&guard_key);
 
         // 8. Emit Event
-        e.events()
-            .publish((symbol_short!("mint"), user, period), archetype);
+        e.events().publish(
+            (symbol_short!("v1"), symbol_short!("mint"), user, period),
+            archetype,
+        );
     }
 
     /// Update an existing wrap record's data_hash and archetype (admin-only).
@@ -282,8 +288,10 @@ impl StellarWrapContract {
             .persistent()
             .extend_ttl(&wrap_key, ttl_one_year, ttl_one_year);
 
-        e.events()
-            .publish((symbol_short!("update"), user, period), new_archetype);
+        e.events().publish(
+            (symbol_short!("v1"), symbol_short!("update"), user, period),
+            new_archetype,
+        );
     }
 
     /// Admin-only revocation for incorrect or fraudulent records.
@@ -310,8 +318,10 @@ impl StellarWrapContract {
                 .set(&count_key, &(current_count - 1));
         }
 
-        e.events()
-            .publish((symbol_short!("revoke"), user, period), true);
+        e.events().publish(
+            (symbol_short!("v1"), symbol_short!("revoke"), user, period),
+            true,
+        );
     }
 
     // --- Read Functions ---

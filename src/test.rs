@@ -104,11 +104,13 @@ fn test_mint_emits_event() {
     let (_, topics, data) = last_event;
 
     // Convert Vals to concrete types for comparison
-    let event_topic: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
-    let event_user: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
-    let event_period: u64 = topics.get(2).unwrap().try_into_val(&env).unwrap();
+    let event_version: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let event_topic: Symbol = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    let event_user: Address = topics.get(2).unwrap().try_into_val(&env).unwrap();
+    let event_period: u64 = topics.get(3).unwrap().try_into_val(&env).unwrap();
     let event_archetype: Symbol = data.try_into_val(&env).unwrap();
 
+    assert_eq!(event_version, symbol_short!("v1"));
     assert_eq!(event_topic, symbol_short!("mint"));
     assert_eq!(event_user, user);
     assert_eq!(event_period, period);
@@ -401,7 +403,7 @@ fn test_mint_event_structured_matching() {
     );
     client.mint_wrap(&user, &period, &archetype, &hash, &sig);
 
-    // Event schema: topics = (Symbol("mint"), Address, u64), data = Symbol
+    // Event schema: topics = (Symbol("v1"), Symbol("mint"), Address, u64), data = Symbol
     let events = env.events().all();
     let last_event = events.last().expect("Expected at least one event");
     let (event_contract, topics, data) = last_event;
@@ -409,21 +411,27 @@ fn test_mint_event_structured_matching() {
     // Verify event is emitted by the correct contract
     assert_eq!(event_contract, contract_id);
 
-    // Verify topic count — mint events must have exactly 3 topics
-    assert_eq!(topics.len(), 3, "Mint event must have exactly 3 topics");
+    // Verify topic count — mint events must have exactly 4 topics (version + 3)
+    assert_eq!(topics.len(), 4, "Mint event must have exactly 4 topics");
 
     // Verify each topic by type and value
     let topic_0: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
-    let topic_1: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
-    let topic_2: u64 = topics.get(2).unwrap().try_into_val(&env).unwrap();
+    let topic_1: Symbol = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    let topic_2: Address = topics.get(2).unwrap().try_into_val(&env).unwrap();
+    let topic_3: u64 = topics.get(3).unwrap().try_into_val(&env).unwrap();
 
     assert_eq!(
         topic_0,
-        symbol_short!("mint"),
-        "Topic 0 must be 'mint' Symbol"
+        symbol_short!("v1"),
+        "Topic 0 must be 'v1' version Symbol"
     );
-    assert_eq!(topic_1, user, "Topic 1 must be the user Address");
-    assert_eq!(topic_2, period, "Topic 2 must be the period u64");
+    assert_eq!(
+        topic_1,
+        symbol_short!("mint"),
+        "Topic 1 must be 'mint' Symbol"
+    );
+    assert_eq!(topic_2, user, "Topic 2 must be the user Address");
+    assert_eq!(topic_3, period, "Topic 3 must be the period u64");
 
     // Verify data is the archetype Symbol
     let event_data: Symbol = data.try_into_val(&env).unwrap();
@@ -483,8 +491,8 @@ fn test_mint_events_multiple_users_correct_schema() {
     let mut mint_events = soroban_sdk::vec![&env];
     for event in events.iter() {
         let (addr, topics, _data) = &event;
-        if *addr == contract_id && topics.len() == 3 {
-            let t: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&env);
+        if *addr == contract_id && topics.len() == 4 {
+            let t: Result<Symbol, _> = topics.get(1).unwrap().try_into_val(&env);
             if t.map_or(false, |s| s == symbol_short!("mint")) {
                 mint_events.push_back(event.clone());
             }
@@ -495,18 +503,22 @@ fn test_mint_events_multiple_users_correct_schema() {
 
     // Verify first mint event (user_a)
     let (_, topics_a, data_a) = mint_events.get(0).unwrap();
-    let ev_user_a: Address = topics_a.get(1).unwrap().try_into_val(&env).unwrap();
-    let ev_period_a: u64 = topics_a.get(2).unwrap().try_into_val(&env).unwrap();
+    let ev_version: Symbol = topics_a.get(0).unwrap().try_into_val(&env).unwrap();
+    let ev_user_a: Address = topics_a.get(2).unwrap().try_into_val(&env).unwrap();
+    let ev_period_a: u64 = topics_a.get(3).unwrap().try_into_val(&env).unwrap();
     let ev_arch_a: Symbol = data_a.try_into_val(&env).unwrap();
+    assert_eq!(ev_version, symbol_short!("v1"));
     assert_eq!(ev_user_a, user_a);
     assert_eq!(ev_period_a, period_a);
     assert_eq!(ev_arch_a, archetype_a);
 
     // Verify second mint event (user_b)
     let (_, topics_b, data_b) = mint_events.get(1).unwrap();
-    let ev_user_b: Address = topics_b.get(1).unwrap().try_into_val(&env).unwrap();
-    let ev_period_b: u64 = topics_b.get(2).unwrap().try_into_val(&env).unwrap();
+    let ev_version: Symbol = topics_b.get(0).unwrap().try_into_val(&env).unwrap();
+    let ev_user_b: Address = topics_b.get(2).unwrap().try_into_val(&env).unwrap();
+    let ev_period_b: u64 = topics_b.get(3).unwrap().try_into_val(&env).unwrap();
     let ev_arch_b: Symbol = data_b.try_into_val(&env).unwrap();
+    assert_eq!(ev_version, symbol_short!("v1"));
     assert_eq!(ev_user_b, user_b);
     assert_eq!(ev_period_b, period_b);
     assert_eq!(ev_arch_b, archetype_b);
@@ -785,11 +797,13 @@ fn test_revoke_wrap_flow_event_and_remint() {
     let last_event = events.last().expect("Expected revoke event");
     let (_, topics, data) = last_event;
 
-    let event_topic: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
-    let event_user: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
-    let event_period: u64 = topics.get(2).unwrap().try_into_val(&env).unwrap();
+    let event_version: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let event_topic: Symbol = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    let event_user: Address = topics.get(2).unwrap().try_into_val(&env).unwrap();
+    let event_period: u64 = topics.get(3).unwrap().try_into_val(&env).unwrap();
     let revoked: bool = data.try_into_val(&env).unwrap();
 
+    assert_eq!(event_version, symbol_short!("v1"));
     assert_eq!(event_topic, symbol_short!("revoke"));
     assert_eq!(event_user, user);
     assert_eq!(event_period, period);
@@ -965,8 +979,10 @@ fn test_update_admin_emits_event() {
 
     let topic_0: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
     let topic_1: Symbol = topics.get(1).unwrap().try_into_val(&env).unwrap();
-    assert_eq!(topic_0, symbol_short!("admin"));
-    assert_eq!(topic_1, symbol_short!("updated"));
+    let topic_2: Symbol = topics.get(2).unwrap().try_into_val(&env).unwrap();
+    assert_eq!(topic_0, symbol_short!("v1"));
+    assert_eq!(topic_1, symbol_short!("admin"));
+    assert_eq!(topic_2, symbol_short!("updated"));
 
     // data is (old_admin, new_admin)
     let (old_admin_val, new_admin_val): (Address, Address) = data.try_into_val(&env).unwrap();
@@ -1042,7 +1058,15 @@ fn test_mint_wrap_zero_hash_rejected() {
     let archetype = symbol_short!("arch");
     let period = 2024u64;
 
-    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &zero_hash);
+    let sig = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &zero_hash,
+    );
     // Must panic with InvalidDataHash
     client.mint_wrap(&user, &period, &archetype, &zero_hash, &sig);
 }
@@ -1068,7 +1092,15 @@ fn test_mint_wrap_non_zero_hash_succeeds() {
     let archetype = symbol_short!("arch");
     let period = 2024u64;
 
-    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &edge_hash);
+    let sig = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &edge_hash,
+    );
     client.mint_wrap(&user, &period, &archetype, &edge_hash, &sig);
 
     let wrap = client.get_wrap(&user, &period).unwrap();
@@ -1093,7 +1125,15 @@ fn test_mint_wrap_max_hash_succeeds() {
     let archetype = symbol_short!("arch");
     let period = 2024u64;
 
-    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &max_hash);
+    let sig = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &max_hash,
+    );
     client.mint_wrap(&user, &period, &archetype, &max_hash, &sig);
 
     let wrap = client.get_wrap(&user, &period).unwrap();
@@ -1129,7 +1169,15 @@ fn sign_update_payload(
     new_archetype: &Symbol,
     new_data_hash: &BytesN<32>,
 ) -> BytesN<64> {
-    sign_payload(env, signer, contract, user, period, new_archetype, new_data_hash)
+    sign_payload(
+        env,
+        signer,
+        contract,
+        user,
+        period,
+        new_archetype,
+        new_data_hash,
+    )
 }
 
 #[test]
@@ -1150,18 +1198,37 @@ fn test_update_wrap_succeeds_and_preserves_timestamp() {
     let archetype = symbol_short!("arch");
     let hash1 = BytesN::from_array(&env, &[41u8; 32]);
 
-    let sig1 = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash1);
+    let sig1 = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &hash1,
+    );
     client.mint_wrap(&user, &period, &archetype, &hash1, &sig1);
 
     let before = client.get_wrap(&user, &period).unwrap();
 
     let new_hash = BytesN::from_array(&env, &[99u8; 32]);
     let new_arch = symbol_short!("builder");
-    let sig2 = sign_update_payload(&env, &signing_key, &contract_id, &user, period, &new_arch, &new_hash);
+    let sig2 = sign_update_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &new_arch,
+        &new_hash,
+    );
     client.update_wrap(&user, &period, &new_hash, &new_arch, &sig2);
 
     let after = client.get_wrap(&user, &period).unwrap();
-    assert_eq!(after.timestamp, before.timestamp, "Original timestamp must be preserved");
+    assert_eq!(
+        after.timestamp, before.timestamp,
+        "Original timestamp must be preserved"
+    );
     assert_eq!(after.data_hash, new_hash);
     assert_eq!(after.archetype, new_arch);
     assert_eq!(after.period, period);
@@ -1184,12 +1251,28 @@ fn test_update_wrap_emits_update_event() {
     let period = 2025u64;
     let archetype = symbol_short!("arch");
     let hash1 = BytesN::from_array(&env, &[41u8; 32]);
-    let sig1 = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash1);
+    let sig1 = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &hash1,
+    );
     client.mint_wrap(&user, &period, &archetype, &hash1, &sig1);
 
     let new_hash = BytesN::from_array(&env, &[98u8; 32]);
     let new_arch = symbol_short!("defi");
-    let sig2 = sign_update_payload(&env, &signing_key, &contract_id, &user, period, &new_arch, &new_hash);
+    let sig2 = sign_update_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &new_arch,
+        &new_hash,
+    );
     client.update_wrap(&user, &period, &new_hash, &new_arch, &sig2);
 
     let events = env.events().all();
@@ -1197,13 +1280,15 @@ fn test_update_wrap_emits_update_event() {
     let (_, topics, data) = last_event;
 
     let topic_0: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
-    let topic_1: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
-    let topic_2: u64 = topics.get(2).unwrap().try_into_val(&env).unwrap();
+    let topic_1: Symbol = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    let topic_2: Address = topics.get(2).unwrap().try_into_val(&env).unwrap();
+    let topic_3: u64 = topics.get(3).unwrap().try_into_val(&env).unwrap();
     let ev_arch: Symbol = data.try_into_val(&env).unwrap();
 
-    assert_eq!(topic_0, symbol_short!("update"));
-    assert_eq!(topic_1, user);
-    assert_eq!(topic_2, period);
+    assert_eq!(topic_0, symbol_short!("v1"));
+    assert_eq!(topic_1, symbol_short!("update"));
+    assert_eq!(topic_2, user);
+    assert_eq!(topic_3, period);
     assert_eq!(ev_arch, new_arch);
 }
 
@@ -1224,7 +1309,15 @@ fn test_update_wrap_nonexistent_fails() {
 
     let new_hash = BytesN::from_array(&env, &[99u8; 32]);
     let new_arch = symbol_short!("arch");
-    let sig = sign_update_payload(&env, &signing_key, &contract_id, &user, 9999, &new_arch, &new_hash);
+    let sig = sign_update_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        9999,
+        &new_arch,
+        &new_hash,
+    );
     client.update_wrap(&user, &9999, &new_hash, &new_arch, &sig);
 }
 
@@ -1246,7 +1339,15 @@ fn test_update_wrap_requires_admin_auth() {
     let period = 2025u64;
     let archetype = symbol_short!("arch");
     let hash1 = BytesN::from_array(&env, &[41u8; 32]);
-    let sig1 = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash1);
+    let sig1 = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &hash1,
+    );
     client.mint_wrap(&user, &period, &archetype, &hash1, &sig1);
 
     // Reset auth — no admin auth mocked
@@ -1257,7 +1358,15 @@ fn test_update_wrap_requires_admin_auth() {
 
     let new_hash = BytesN::from_array(&env2, &[99u8; 32]);
     let new_arch = symbol_short!("arch");
-    let sig2 = sign_update_payload(&env2, &signing_key, &contract_id2, &user, period, &new_arch, &new_hash);
+    let sig2 = sign_update_payload(
+        &env2,
+        &signing_key,
+        &contract_id2,
+        &user,
+        period,
+        &new_arch,
+        &new_hash,
+    );
     // No auth mocked — must panic
     client2.update_wrap(&user, &period, &new_hash, &new_arch, &sig2);
 }
@@ -1280,10 +1389,26 @@ fn test_update_wrap_zero_hash_rejected() {
     let period = 2025u64;
     let archetype = symbol_short!("arch");
     let hash1 = BytesN::from_array(&env, &[41u8; 32]);
-    let sig1 = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash1);
+    let sig1 = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &hash1,
+    );
     client.mint_wrap(&user, &period, &archetype, &hash1, &sig1);
 
     let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
-    let sig2 = sign_update_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &zero_hash);
+    let sig2 = sign_update_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &zero_hash,
+    );
     client.update_wrap(&user, &period, &zero_hash, &archetype, &sig2);
 }
