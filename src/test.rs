@@ -1,9 +1,12 @@
 #![cfg(test)]
+extern crate std;
+
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events},
     Address, BytesN, Env,
 };
+use std::format;
 
 #[test]
 fn test_minting_flow() {
@@ -19,7 +22,7 @@ fn test_minting_flow() {
     env.mock_all_auths();
 
     use soroban_sdk::symbol_short;
-    let dummy_hash = BytesN::from_array(&env, &[42u8; 32]);
+    let dummy_hash = BytesN::from_array(&env, &[42u8; constants::HASH_BYTES]);
     let archetype = symbol_short!("architect");
     let period = symbol_short!("jan2024");
 
@@ -33,7 +36,7 @@ fn test_minting_flow() {
     assert_eq!(wrap.data_hash, dummy_hash);
     assert_eq!(wrap.archetype, archetype);
     assert_eq!(wrap.minted_at, env.ledger().timestamp());
-    
+
     assert_eq!(client.get_user_count(&user), 1);
 }
 
@@ -63,7 +66,7 @@ fn test_mint_wrap_unauthorized() {
     client.initialize(&admin);
 
     use soroban_sdk::symbol_short;
-    let dummy_hash = BytesN::from_array(&env, &[42u8; 32]);
+    let dummy_hash = BytesN::from_array(&env, &[42u8; constants::HASH_BYTES]);
     let archetype = symbol_short!("defi");
     let period = symbol_short!("jan2024");
 
@@ -83,49 +86,61 @@ fn test_mint_emits_event() {
     env.mock_all_auths();
 
     use soroban_sdk::symbol_short;
-    let dummy_hash = BytesN::from_array(&env, &[42u8; 32]);
+    let dummy_hash = BytesN::from_array(&env, &[42u8; constants::HASH_BYTES]);
     let archetype = symbol_short!("architect");
     let period = symbol_short!("jan2024");
 
     client.mint_wrap(&user, &dummy_hash, &archetype, &period);
 
     let events = env.events().all();
-    
+
     assert!(events.len() > 0, "No events emitted");
-    
+
     let mut mint_event_count = 0;
     let mut found_event_topics = None;
     let mut found_event_data = None;
-    
+
     for i in 0..events.len() {
         let event = events.get(i).unwrap();
         let (_, topics, data) = event;
-        
-        if topics.len() >= 1 && topics.get(0).unwrap().get_payload() == symbol_short!("mint").to_val().get_payload() {
+
+        if topics.len() >= 1
+            && topics.get(0).unwrap().get_payload() == symbol_short!("mint").to_val().get_payload()
+        {
             mint_event_count += 1;
             found_event_topics = Some(topics);
             found_event_data = Some(data);
         }
     }
-    
+
     assert_eq!(mint_event_count, 1, "Should emit exactly one mint event");
-    
+
     let topics = found_event_topics.unwrap();
     let data = found_event_data.unwrap();
-    
-    assert_eq!(topics.len(), 2, "Event should have 2 topics: 'mint' and user address");
-    
+
+    assert_eq!(
+        topics.len(),
+        2,
+        "Event should have 2 topics: 'mint' and user address"
+    );
+
     assert_eq!(
         topics.get(0).unwrap().get_payload(),
         symbol_short!("mint").to_val().get_payload(),
         "First topic should be 'mint'"
     );
-    
+
     let second_topic = topics.get(1).unwrap().get_payload();
-    assert!(second_topic != 0, "Second topic (user address) should exist and be non-zero");
+    assert!(
+        second_topic != 0,
+        "Second topic (user address) should exist and be non-zero"
+    );
 
     let event_data_payload = data.get_payload();
-    assert!(event_data_payload != 0, "Event data (period as u64) should exist and be non-zero");
+    assert!(
+        event_data_payload != 0,
+        "Event data (period as u64) should exist and be non-zero"
+    );
 }
 
 #[test]
@@ -141,8 +156,8 @@ fn test_multiple_periods() {
     env.mock_all_auths();
 
     use soroban_sdk::symbol_short;
-    let dummy_hash_1 = BytesN::from_array(&env, &[42u8; 32]);
-    let dummy_hash_2 = BytesN::from_array(&env, &[99u8; 32]);
+    let dummy_hash_1 = BytesN::from_array(&env, &[42u8; constants::HASH_BYTES]);
+    let dummy_hash_2 = BytesN::from_array(&env, &[99u8; constants::HASH_BYTES]);
     let archetype_1 = symbol_short!("architect");
     let archetype_2 = symbol_short!("patron");
     let period_1 = symbol_short!("jan2024");
@@ -156,10 +171,10 @@ fn test_multiple_periods() {
 
     assert_eq!(wrap_jan.data_hash, dummy_hash_1);
     assert_eq!(wrap_jan.archetype, archetype_1);
-    
+
     assert_eq!(wrap_feb.data_hash, dummy_hash_2);
     assert_eq!(wrap_feb.archetype, archetype_2);
-    
+
     assert_eq!(client.get_user_count(&user), 2);
 }
 
@@ -177,11 +192,98 @@ fn test_duplicate_period_fails() {
     env.mock_all_auths();
 
     use soroban_sdk::symbol_short;
-    let dummy_hash_1 = BytesN::from_array(&env, &[42u8; 32]);
-    let dummy_hash_2 = BytesN::from_array(&env, &[99u8; 32]);
+    let dummy_hash_1 = BytesN::from_array(&env, &[42u8; constants::HASH_BYTES]);
+    let dummy_hash_2 = BytesN::from_array(&env, &[99u8; constants::HASH_BYTES]);
     let archetype = symbol_short!("architect");
     let period = symbol_short!("jan2024");
 
     client.mint_wrap(&user, &dummy_hash_1, &archetype, &period);
     client.mint_wrap(&user, &dummy_hash_2, &archetype, &period);
+}
+
+#[test]
+fn test_allowed_archetypes_initialized() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    use soroban_sdk::symbol_short;
+    let allowed = client.get_allowed_archetypes();
+
+    assert!(allowed.contains(&symbol_short!("builder")));
+    assert!(allowed.contains(&symbol_short!("architect")));
+    assert!(allowed.contains(&symbol_short!("defi")));
+    assert!(allowed.contains(&symbol_short!("patron")));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn test_invalid_archetype_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    use soroban_sdk::symbol_short;
+    let dummy_hash = BytesN::from_array(&env, &[42u8; constants::HASH_BYTES]);
+    let archetype = symbol_short!("unknown");
+    let period = symbol_short!("jan2024");
+
+    client.mint_wrap(&user, &dummy_hash, &archetype, &period);
+}
+
+#[test]
+fn test_admin_can_add_and_remove_archetype() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    use soroban_sdk::symbol_short;
+    let archetype = symbol_short!("creator");
+    client.add_archetype(&archetype);
+    assert!(client.get_allowed_archetypes().contains(&archetype));
+
+    let dummy_hash = BytesN::from_array(&env, &[42u8; constants::HASH_BYTES]);
+    let period = symbol_short!("mar2024");
+    client.mint_wrap(&user, &dummy_hash, &archetype, &period);
+    assert!(client.get_wrap(&user, &period).is_some());
+
+    client.remove_archetype(&archetype);
+    assert!(!client.get_allowed_archetypes().contains(&archetype));
+}
+
+#[test]
+fn test_wrap_record_display_is_single_line_with_hash_preview() {
+    let env = Env::default();
+
+    use soroban_sdk::symbol_short;
+    let record = WrapRecord {
+        minted_at: 123,
+        data_hash: BytesN::from_array(&env, &[42u8; constants::HASH_BYTES]),
+        archetype: symbol_short!("builder"),
+        period: symbol_short!("jan2024"),
+    };
+
+    let output = format!("{record}");
+
+    assert!(output.contains("WrapRecord"));
+    assert!(output.contains("period: Symbol(jan2024)"));
+    assert!(output.contains("archetype: Symbol(builder)"));
+    assert!(output.contains("minted_at: 123"));
+    assert!(output.contains("data_hash: 2a2a2a2a..."));
+    assert!(!output.contains('\n'));
 }

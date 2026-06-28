@@ -84,6 +84,46 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AllowedArchetypes"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "symbol": "builder"
+                            },
+                            {
+                              "symbol": "architect"
+                            },
+                            {
+                              "symbol": "defi"
+                            },
+                            {
+                              "symbol": "patron"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "UserCount"
+                            },
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Wrap"
                             },
                             {
@@ -114,18 +154,18 @@
                             },
                             {
                               "key": {
-                                "symbol": "period"
+                                "symbol": "minted_at"
                               },
                               "val": {
-                                "symbol": "jan2024"
+                                "u64": 0
                               }
                             },
                             {
                               "key": {
-                                "symbol": "timestamp"
+                                "symbol": "period"
                               },
                               "val": {
-                                "u64": 0
+                                "symbol": "jan2024"
                               }
                             }
                           ]
@@ -138,7 +178,7 @@
             },
             "ext": "v0"
           },
-          4095
+          6307200
         ]
       ],
       [
@@ -192,7 +232,7 @@
             },
             "ext": "v0"
           },
-          4095
+          6307200
         ]
       ]
     ]

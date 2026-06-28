@@ -92,11 +92,45 @@ This project is designed to support the growth of the Stellar network by:
 ### Functions
 
 - `initialize(e: Env, admin: Address)` - Initialize contract with admin (callable once)
-- `mint_wrap(e: Env, to: Address, data_hash: BytesN<32>, archetype: Symbol)` - Mint a wrap record (admin only)
-- `get_wrap(e: Env, user: Address) -> Option<WrapRecord>` - Retrieve a user's wrap record
+- `mint_wrap(e: Env, to: Address, data_hash: BytesN<32>, archetype: Symbol, period: Symbol)` - Mint a wrap record for a period (admin only)
+- `get_wrap(e: Env, user: Address, period: Symbol) -> Option<WrapRecord>` - Retrieve a user's wrap record for a period
+- `get_user_count(e: Env, user: Address) -> u32` - Retrieve the number of wraps minted for a user
+- `get_admin(e: Env) -> Address` - Retrieve the configured admin address
+- `add_archetype(e: Env, archetype: Symbol)` - Add an allowed archetype (admin only)
+- `remove_archetype(e: Env, archetype: Symbol)` - Remove an allowed archetype (admin only)
+- `get_allowed_archetypes(e: Env) -> Vec<Symbol>` - Retrieve the current archetype allowlist
+- `upgrade(e: Env, wasm_hash: BytesN<32>)` - Upgrade the current contract WASM (admin only)
 
 ### Storage
 
-- `WrapRecord`: Contains `timestamp`, `data_hash`, and `archetype`
+- `WrapRecord`: Contains `minted_at`, `data_hash`, `archetype`, and `period`
 - `DataKey::Admin`: Stores the admin address
-- `DataKey::Wrap(Address)`: Maps user addresses to their wrap records
+- `DataKey::Wrap(Address, Symbol)`: Maps user addresses and periods to their wrap records
+- `DataKey::UserCount(Address)`: Tracks the number of wraps minted for a user
+- `DataKey::AllowedArchetypes`: Stores the admin-managed archetype allowlist
+
+## Archetype Validation
+
+Archetypes remain stored as `Symbol` values for backwards compatibility with existing wraps. Replacing the field with a contract enum would reduce storage variability, but it would be a breaking storage migration because records already serialized with `Symbol` would no longer decode cleanly.
+
+The contract therefore uses an admin-managed allowlist. `initialize()` seeds the list with the known short archetypes `builder`, `architect`, `defi`, and `patron`; admins can update it with `add_archetype()` and `remove_archetype()`. `mint_wrap()` rejects archetypes that are not present in the allowlist.
+
+## Testnet Deployment
+
+The `.github/workflows/deploy-testnet.yml` workflow deploys automatically on pushes to `main` and can also be run manually with `workflow_dispatch`.
+
+Required GitHub Actions secret:
+
+- `STELLAR_DEPLOYER_SECRET`: secret key for the funded Stellar testnet deployer account.
+
+Optional GitHub Actions secret:
+
+- `STELLAR_TESTNET_CONTRACT_ID`: existing testnet contract ID. When present, the workflow installs the new WASM and calls `upgrade()` instead of deploying a fresh contract.
+
+Manual dispatch inputs:
+
+- `contract_id`: overrides `STELLAR_TESTNET_CONTRACT_ID` for an ad-hoc upgrade.
+- `admin_address`: admin address used when initializing a new deployment. Defaults to the deployer public key.
+- `initialize`: whether to call `initialize()` after a fresh deployment.
+
+Every deployment writes `contract-id.txt` as a GitHub Actions artifact and adds the contract ID plus `get_admin()` smoke-test result to the job summary.
