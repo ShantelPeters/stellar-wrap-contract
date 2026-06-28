@@ -72,6 +72,8 @@ pub enum DataKey {
     MerkleClaimed(Address, u64),
     /// User privacy opt-out flag (persistent)
     UserOptOut(Address),
+    /// An allowed archetype that can be used in mint_wrap / claim_wrap (instance)
+    ArchetypeAllowed(Symbol),
 }
 
 /// Current schema version written by `initialize()` and advanced by `migrate()`.

@@ -49,6 +49,8 @@ pub enum ContractError {
     InvalidMigration = 11,
     /// Storage deposit/budget exceeded (code 12)
     StorageDepositExceeded = 12,
+    /// The archetype is not in the allowed set. (code 13)
+    InvalidArchetype = 13,
 }
 
 
@@ -236,7 +238,10 @@ impl StellarWrapContract {
         e.crypto()
             .ed25519_verify(&admin_pubkey, &payload, &signature);
 
-        // 6. Check Duplicates & Store Record
+        // 6. Validate archetype against the allowed set
+        Self::validate_archetype(&e, &archetype);
+
+        // 7. Check Duplicates & Store Record
         let wrap_key = DataKey::Wrap(user.clone(), period);
         if e.storage().persistent().has(&wrap_key) {
             panic_with_error!(e, ContractError::WrapAlreadyExists);
@@ -311,6 +316,8 @@ impl StellarWrapContract {
         if data_hash == BytesN::from_array(&e, &[0u8; 32]) {
             panic_with_error!(e, ContractError::InvalidDataHash);
         }
+
+        Self::validate_archetype(&e, &archetype);
 
         let root: BytesN<32> = e
             .storage()
@@ -638,6 +645,8 @@ impl StellarWrapContract {
         e.crypto()
             .ed25519_verify(&admin_pubkey, &payload, &signature);
 
+        Self::validate_archetype(&e, &new_archetype);
+
         let wrap_key = DataKey::Wrap(user.clone(), period);
         let existing: WrapRecord = Self::load_wrap_record(&e, &user, period)
             .unwrap_or_else(|| panic_with_error!(e, ContractError::WrapNotFound));
@@ -875,6 +884,68 @@ impl StellarWrapContract {
 
         admin.require_auth();
         e.deployer().update_current_contract_wasm(new_wasm_hash);
+    }
+
+    /// Add an archetype to the allowed set (admin-only).
+    ///
+    /// Once added, `mint_wrap`, `claim_wrap`, and `update_wrap` will accept this archetype.
+    pub fn add_archetype(e: Env, archetype: Symbol) {
+        let admin: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+        admin.require_auth();
+
+        e.storage()
+            .instance()
+            .set(&DataKey::ArchetypeAllowed(archetype.clone()), &true);
+
+        e.events().publish(
+            (symbol_short!("archetype"), symbol_short!("added")),
+            archetype,
+        );
+    }
+
+    /// Remove an archetype from the allowed set (admin-only).
+    ///
+    /// Existing wrap records using this archetype are not affected, but new
+    /// `mint_wrap`, `claim_wrap`, and `update_wrap` calls will reject it.
+    pub fn remove_archetype(e: Env, archetype: Symbol) {
+        let admin: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+        admin.require_auth();
+
+        e.storage()
+            .instance()
+            .remove(&DataKey::ArchetypeAllowed(archetype.clone()));
+
+        e.events().publish(
+            (symbol_short!("archetype"), symbol_short!("remove")),
+            archetype,
+        );
+    }
+
+    /// Check whether an archetype is in the allowed set.
+    ///
+    /// Useful for frontends to validate archetypes before submitting a transaction.
+    pub fn is_valid_archetype(e: Env, archetype: Symbol) -> bool {
+        e.storage()
+            .instance()
+            .has(&DataKey::ArchetypeAllowed(archetype))
+    }
+
+    fn validate_archetype(e: &Env, archetype: &Symbol) {
+        if !e
+            .storage()
+            .instance()
+            .has(&DataKey::ArchetypeAllowed(archetype.clone()))
+        {
+            panic_with_error!(e, ContractError::InvalidArchetype);
+        }
     }
 }
 

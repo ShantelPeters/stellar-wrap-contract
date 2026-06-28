@@ -15,6 +15,10 @@ use soroban_sdk::{
 };
 
 /// Helper function to sign payloads for testing
+fn register_security_archetypes(client: &StellarWrapContractClient) {
+    client.add_archetype(&symbol_short!("architect"));
+}
+
 fn sign_payload(
     env: &Env,
     signer: &SigningKey,
@@ -55,6 +59,7 @@ fn test_replay_attack_same_period_fails() {
 
     client.initialize(&admin, &admin_pubkey);
     env.mock_all_auths();
+    register_security_archetypes(&client);
 
     let data_hash = BytesN::from_array(&env, &[42u8; 32]);
     let archetype = symbol_short!("architect");
@@ -98,6 +103,7 @@ fn test_replay_attack_different_hash_same_period_fails() {
 
     client.initialize(&admin, &admin_pubkey);
     env.mock_all_auths();
+    register_security_archetypes(&client);
 
     let data_hash_1 = BytesN::from_array(&env, &[42u8; 32]);
     let data_hash_2 = BytesN::from_array(&env, &[99u8; 32]);
@@ -147,6 +153,7 @@ fn test_multiple_periods_for_same_user_success() {
 
     client.initialize(&admin, &admin_pubkey);
     env.mock_all_auths();
+    register_security_archetypes(&client);
 
     let data_hash_1 = BytesN::from_array(&env, &[42u8; 32]);
     let data_hash_2 = BytesN::from_array(&env, &[99u8; 32]);
@@ -216,6 +223,7 @@ fn test_signature_cannot_be_stolen_by_another_user() {
 
     client.initialize(&admin, &admin_pubkey);
     env.mock_all_auths();
+    register_security_archetypes(&client);
 
     // Admin creates a signature for User A
     let data_hash_for_a = BytesN::from_array(&env, &[42u8; 32]);
@@ -299,6 +307,8 @@ fn test_cross_contract_replay_protection() {
     client_v2.initialize(&admin, &admin_pubkey);
 
     env.mock_all_auths();
+    register_security_archetypes(&client_v1);
+    register_security_archetypes(&client_v2);
 
     let data_hash = BytesN::from_array(&env, &[42u8; 32]);
     let archetype = symbol_short!("architect");
@@ -366,6 +376,7 @@ fn test_gas_analysis_mint_operation() {
 
     client.initialize(&admin, &admin_pubkey);
     env.mock_all_auths();
+    register_security_archetypes(&client);
 
     let data_hash = BytesN::from_array(&env, &[42u8; 32]);
     let archetype = symbol_short!("architect");
@@ -426,6 +437,7 @@ fn test_gas_analysis_multiple_mints() {
 
     client.initialize(&admin, &admin_pubkey);
     env.mock_all_auths();
+    register_security_archetypes(&client);
 
     env.budget().reset_default();
 
@@ -480,6 +492,7 @@ fn test_timestamp_is_from_ledger_not_user() {
 
     client.initialize(&admin, &admin_pubkey);
     env.mock_all_auths();
+    register_security_archetypes(&client);
 
     // Set specific ledger timestamp
     env.ledger().with_mut(|li| {
@@ -547,6 +560,7 @@ fn test_edge_case_long_symbols() {
 
     client.initialize(&admin, &admin_pubkey);
     env.mock_all_auths();
+    register_security_archetypes(&client);
 
     let data_hash = BytesN::from_array(&env, &[42u8; 32]);
 
