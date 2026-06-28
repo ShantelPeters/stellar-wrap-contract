@@ -47,6 +47,8 @@ pub enum ContractError {
     MerkleAlreadyClaimed = 10,
     /// `migrate()` was called with invalid version parameters. (code 11)
     InvalidMigration = 11,
+    /// The contract is paused and cannot accept state-changing operations. (code 12)
+    ContractPaused = 12,
 }
 
 #[contract]
@@ -74,6 +76,67 @@ impl StellarWrapContract {
         e.storage()
             .instance()
             .set(&DataKey::SchemaVersion, &SCHEMA_VERSION);
+
+        e.events()
+            .publish((symbol_short!("initialize"), symbol_short!("admin")), admin);
+        e.events()
+            .publish((symbol_short!("initialize"), symbol_short!("pubkey")), admin_pubkey);
+    }
+
+    /// Pause the contract to prevent state-changing operations (admin-only).
+    ///
+    /// # Authorization
+    /// Requires authorization from the **current** admin.
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if the contract has not been initialized.
+    pub fn pause(e: Env) {
+        let admin: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+        admin.require_auth();
+
+        e.storage().instance().set(&DataKey::Paused, &true);
+
+        e.events()
+            .publish((symbol_short!("pause"), symbol_short!("contract")), true);
+    }
+
+    /// Unpause the contract to resume state-changing operations (admin-only).
+    ///
+    /// # Authorization
+    /// Requires authorization from the **current** admin.
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if the contract has not been initialized.
+    pub fn unpause(e: Env) {
+        let admin: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+        admin.require_auth();
+
+        e.storage().instance().set(&DataKey::Paused, &false);
+
+        e.events()
+            .publish((symbol_short!("unpause"), symbol_short!("contract")), true);
+    }
+
+    /// Return whether the contract is currently paused.
+    pub fn is_paused(e: Env) -> bool {
+        e.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    fn require_not_paused(e: &Env) {
+        if e.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+            panic_with_error!(e, ContractError::ContractPaused);
+        }
     }
 
     /// Replace the current admin with a new address.
@@ -139,6 +202,9 @@ impl StellarWrapContract {
         data_hash: BytesN<32>,
         signature: BytesN<64>,
     ) {
+        // 0. Security: Check if contract is paused
+        Self::require_not_paused(&e);
+
         // 1. Security: Ensure the user actually signed this transaction
         user.require_auth();
 
@@ -198,6 +264,8 @@ impl StellarWrapContract {
     /// `SHA-256(XDR(user) ‖ XDR(period) ‖ XDR(archetype) ‖ XDR(data_hash))`.
     /// Internal nodes use `SHA-256(min(h1,h2) ‖ max(h1,h2))` (lexicographic order).
     pub fn set_merkle_root(e: Env, period: u64, root: BytesN<32>) {
+        Self::require_not_paused(&e);
+
         let admin: Address = e
             .storage()
             .instance()
@@ -225,6 +293,8 @@ impl StellarWrapContract {
         data_hash: BytesN<32>,
         proof: soroban_sdk::Vec<BytesN<32>>,
     ) {
+        Self::require_not_paused(&e);
+
         user.require_auth();
 
         let guard_key = DataKey::MintGuard(user.clone());
@@ -348,6 +418,8 @@ impl StellarWrapContract {
 
     /// Re-enable public visibility of wrap records for `user`.
     pub fn opt_in(e: Env, user: Address) {
+        Self::require_not_paused(&e);
+
         user.require_auth();
         e.storage()
             .instance()
@@ -426,9 +498,10 @@ impl StellarWrapContract {
 
         let count_key = DataKey::WrapCount(user.clone());
         let current_count: u32 = e.storage().persistent().get(&count_key).unwrap_or(0);
+        let new_count = current_count.checked_add(1).unwrap();
         e.storage()
             .persistent()
-            .set(&count_key, &(current_count + 1));
+            .set(&count_key, &new_count);
         e.storage()
             .persistent()
             .extend_ttl(&count_key, ttl_one_year, ttl_one_year);
@@ -501,6 +574,8 @@ impl StellarWrapContract {
         new_archetype: Symbol,
         signature: BytesN<64>,
     ) {
+        Self::require_not_paused(&e);
+
         let admin: Address = e
             .storage()
             .instance()
@@ -562,6 +637,8 @@ impl StellarWrapContract {
 
     /// Admin-only revocation for incorrect or fraudulent records.
     pub fn revoke_wrap(e: Env, user: Address, period: u64) {
+        Self::require_not_paused(&e);
+
         let admin: Address = e
             .storage()
             .instance()
@@ -686,11 +763,19 @@ impl StellarWrapContract {
         }
 
         e.storage().instance().extend_ttl(ttl, ttl);
+
+        e.events()
+            .publish((symbol_short!("extend_ttl"), user, period), ttl);
     }
 
     /// Return the current admin address, or `None` if the contract is not yet initialized.
     pub fn get_admin(e: Env) -> Option<Address> {
         e.storage().instance().get(&DataKey::Admin)
+    }
+
+    /// Return the merkle root for a given period, or `None` if not set.
+    pub fn get_merkle_root(e: Env, period: u64) -> Option<BytesN<32>> {
+        e.storage().instance().get(&DataKey::MerkleRoot(period))
     }
 
     /// Return the human-readable name of this token registry.

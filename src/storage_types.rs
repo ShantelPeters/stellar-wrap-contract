@@ -39,6 +39,8 @@ pub enum DataKey {
     AdminPubKey,
     /// Current storage schema version (instance storage)
     SchemaVersion,
+    /// Contract pause state (instance storage)
+    Paused,
     /// Stores individual WrapRecords (mapped by User and Period)
     /// Using u64 for period ensures consistent indexing
     Wrap(Address, u64),
