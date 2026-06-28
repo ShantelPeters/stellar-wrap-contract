@@ -1,14 +1,12 @@
 name: CI
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+on: [push, pull_request]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-D warnings"
     steps:
     - uses: actions/checkout@v4
     - name: Install Rust
@@ -21,3 +19,10 @@ jobs:
       run: cargo clippy -- -D warnings
     - name: Run tests
       run: cargo test
+    - name: Build WASM (release)
+      run: cargo build --release --target wasm32-unknown-unknown
+    - name: Check WASM size
+      run: |
+        SIZE=$(stat -f%z target/wasm32-unknown-unknown/release/*.wasm 2>/dev/null || stat -c%s target/wasm32-unknown-unknown/release/*.wasm)
+        echo "WASM size: $SIZE bytes"
+        if [ "$SIZE" -gt 65536 ]; then echo "WARNING: WASM exceeds 64KB"; fi
