@@ -33,15 +33,29 @@ pub struct WrapRecordV1 {
     pub period: u64,
 }
 
+/// Period encoded as YYYYMM (e.g., 202512 = December 2025)
+pub type WrapPeriod = u64;
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WrapRecordV2 {
+    pub timestamp: u64,
+    pub data_hash: BytesN<32>,
+    pub archetype: Symbol,
+    pub period: u64,
+    pub image_uri: String,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WrapRecord {
     pub timestamp: u64,
     pub data_hash: BytesN<32>,
     pub archetype: Symbol,
-    pub period: u64, // Standardized to u64 for better indexing/sorting
-    /// Optional off-chain image URI (schema v2+). Empty for legacy records.
+    pub period: WrapPeriod,
     pub image_uri: String,
+    /// Optional on-chain metadata/notes (schema v3+)
+    pub metadata: Option<String>,
 }
 
 impl fmt::Display for WrapRecord {
@@ -125,4 +139,5 @@ pub enum DataKey {
 pub const SCHEMA_VERSION: u32 = 1;
 /// Target schema version after v1 → v2 migration (`image_uri` field).
 pub const SCHEMA_VERSION_V2: u32 = 2;
-
+/// Target schema version after v2 → v3 migration (`metadata` field).
+pub const SCHEMA_VERSION_V3: u32 = 3;
