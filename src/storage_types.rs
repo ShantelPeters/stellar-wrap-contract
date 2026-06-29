@@ -89,8 +89,6 @@ pub enum DataKey {
     WrapCount(Address),
     /// Tracks the latest (highest) period minted for a user
     LatestPeriod(Address),
-    /// Tracks the current consecutive wrap streak for a user
-    WrapStreak(Address),
     /// Temporary, invocation-scoped reentrancy guard for mint flow
     MintGuard(Address),
     /// Merkle root for batch claims per period
