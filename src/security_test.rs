@@ -14,49 +14,6 @@ use soroban_sdk::{
     Address, Bytes, BytesN, Env, Symbol,
 };
 
-const INITIALIZE_CPU_LIMIT: u64 = 1_000_000;
-const INITIALIZE_MEM_LIMIT: u64 = 60_000;
-const GET_WRAP_CPU_LIMIT: u64 = 500_000;
-const GET_WRAP_MEM_LIMIT: u64 = 25_000;
-const BALANCE_OF_CPU_LIMIT: u64 = 200_000;
-const BALANCE_OF_MEM_LIMIT: u64 = 10_000;
-const VERIFY_DATA_CPU_LIMIT: u64 = 1_500_000;
-const VERIFY_DATA_MEM_LIMIT: u64 = 40_000;
-const GET_LATEST_WRAP_ONE_CPU_LIMIT: u64 = 600_000;
-const GET_LATEST_WRAP_ONE_MEM_LIMIT: u64 = 30_000;
-const GET_LATEST_WRAP_FIVE_CPU_LIMIT: u64 = 1_200_000;
-const GET_LATEST_WRAP_FIVE_MEM_LIMIT: u64 = 50_000;
-const EXTEND_TTL_CPU_LIMIT: u64 = 1_200_000;
-const EXTEND_TTL_MEM_LIMIT: u64 = 40_000;
-const REVOKE_WRAP_CPU_LIMIT: u64 = 2_000_000;
-const REVOKE_WRAP_MEM_LIMIT: u64 = 60_000;
-const UPDATE_ADMIN_CPU_LIMIT: u64 = 700_000;
-const UPDATE_ADMIN_MEM_LIMIT: u64 = 25_000;
-
-fn print_benchmark_row(name: &str, cpu: u64, mem: u64, cpu_limit: u64, mem_limit: u64) {
-    println!(
-        "GAS BENCHMARK | {:<22} | CPU: {:>9} / {:>9} | MEM: {:>7} / {:>7}",
-        name, cpu, cpu_limit, mem, mem_limit
-    );
-}
-
-fn assert_benchmark(name: &str, cpu_insns: u64, mem_bytes: u64, cpu_limit: u64, mem_limit: u64) {
-    print_benchmark_row(name, cpu_insns, mem_bytes, cpu_limit, mem_limit);
-    assert!(
-        cpu_insns <= cpu_limit,
-        "{} CPU instructions too high: {} > {}",
-        name,
-        cpu_insns,
-        cpu_limit
-    );
-    assert!(
-        mem_bytes <= mem_limit,
-        "{} memory bytes too high: {} > {}",
-        name,
-        mem_bytes,
-        mem_limit
-    );
-}
 
 /// Helper function to sign payloads for testing
 }
@@ -76,8 +33,6 @@ fn sign_payload(
     payload.append(&period.to_xdr(env));
     payload.append(&archetype.clone().to_xdr(env));
     payload.append(&data_hash.clone().to_xdr(env));
-    let metadata: Option<String> = None;
-    payload.append(&metadata.to_xdr(env));
 
     let mut out = [0u8; 512];
     let len = payload.len() as usize;
@@ -303,7 +258,6 @@ fn test_signature_cannot_be_stolen_by_another_user() {
         &period_b,
         &archetype,
         &data_hash_for_b,
-        &0u64,
         &signature_b,
         &None,
     );

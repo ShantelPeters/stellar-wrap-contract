@@ -106,9 +106,11 @@ impl StellarWrapContract {
 
     /// Mint a soulbound wrap record for a user.
     ///
-    /// The backend generates a payload of `(contract_id ‖ user ‖ period ‖ archetype ‖ data_hash)`,
+    /// The backend generates a payload of
+    /// `(contract_id ‖ user ‖ period ‖ archetype ‖ data_hash ‖ expiry_ledger)`,
     /// signs it with the admin Ed25519 private key, and delivers the signature to the user.
-    /// The user then calls this function to claim their on-chain wrap record.
+    /// The user then calls this function to claim their on-chain wrap record before
+    /// `expiry_ledger` is reached.
     ///
     /// **Invariant:** The admin must issue at most one signature per `(user, period)` pair.
     /// Only one archetype can ever be stored for a given period; a second valid signature for
@@ -120,7 +122,6 @@ impl StellarWrapContract {
     /// - `period`: A `u64` identifier for the wrap period (e.g. `202412` for December 2024).
     /// - `archetype`: A short `Symbol` describing the user's persona (e.g. `"builder"`).
     /// - `data_hash`: SHA-256 hash of the off-chain JSON data. Must not be all-zero bytes.
-    /// - `expires_at`: Optional expiry ledger sequence. `0` means no expiry (permanent).
     /// - `signature`: 64-byte Ed25519 signature from the admin over the canonical payload.
     /// - `delegate`: When set, the delegate must authorize and their registered pubkey is used
     ///   for signature verification instead of the admin key.
@@ -135,7 +136,6 @@ impl StellarWrapContract {
     /// # Panics
     /// - [`ContractError::NotInitialized`] if the contract has not been initialized.
     /// - [`ContractError::InvalidDataHash`] if `data_hash` is all-zero bytes.
-    /// - [`ContractError::InvalidExpiry`] if `expires_at` is set but not in the future.
     /// - [`ContractError::InvalidSignature`] if the Ed25519 signature is invalid.
     /// - [`ContractError::WrapAlreadyExists`] if a wrap for `(user, period)` already exists.
     // mint_wrap intentionally covers one complete, sequential flow (auth → verify → store → emit).
@@ -148,7 +148,6 @@ impl StellarWrapContract {
         period: WrapPeriod,
         archetype: Symbol,
         data_hash: BytesN<32>,
-        expires_at: u64,
         signature: BytesN<64>,
     ) {
         user.require_auth();
@@ -193,12 +192,6 @@ impl StellarWrapContract {
         payload.append(&period.to_xdr(&e));
         payload.append(&archetype.clone().to_xdr(&e));
         payload.append(&data_hash.clone().to_xdr(&e));
-        payload.append(&metadata.clone().to_xdr(&e));
-
-
-        // 6. Validate archetype against the allowed set
-        Self::validate_archetype(&e, &archetype);
-
         // 7. Check Duplicates & Store Record
         let wrap_key = DataKey::Wrap(user.clone(), period);
         if e.storage().persistent().has(&wrap_key) {

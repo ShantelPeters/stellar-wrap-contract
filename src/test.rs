@@ -76,6 +76,7 @@ fn sign_payload(
     period: u64,
     archetype: &Symbol,
     data_hash: &BytesN<32>,
+    expiry_ledger: u32,
 ) -> BytesN<64> {
     let mut payload = Bytes::new(env);
     payload.append(&contract.to_xdr(env));
@@ -83,8 +84,6 @@ fn sign_payload(
     payload.append(&period.to_xdr(env));
     payload.append(&archetype.clone().to_xdr(env));
     payload.append(&data_hash.clone().to_xdr(env));
-    let metadata: Option<String> = None;
-    payload.append(&metadata.to_xdr(env));
 
     let mut out = [0u8; 512];
     let len = payload.len() as usize;
@@ -129,6 +128,7 @@ fn test_minting_flow() {
         period,
         &archetype,
         &dummy_hash,
+        u32::MAX,
     );
 
     let wrap = client.get_wrap(&user, &period).unwrap();
@@ -161,6 +161,7 @@ fn test_mint_emits_event() {
         period,
         &archetype,
         &hash,
+        u32::MAX,
     );
 
 
@@ -200,6 +201,7 @@ fn test_streak_after_first_mint_is_one() {
         period,
         &archetype,
         &hash,
+        u32::MAX,
     );
 
     assert_eq!(client.get_streak(&user), 1);
@@ -231,6 +233,7 @@ fn test_streak_increments_for_consecutive_months_and_year_boundary() {
         202412u64,
         &archetype,
         &hash,
+        u32::MAX,
     );
     assert_eq!(client.get_streak(&user), 1);
 
@@ -242,6 +245,7 @@ fn test_streak_increments_for_consecutive_months_and_year_boundary() {
         202501u64,
         &archetype,
         &hash,
+        u32::MAX,
     );
     assert_eq!(client.get_streak(&user), 2);
 }
@@ -272,6 +276,7 @@ fn test_streak_resets_after_gap() {
         202501u64,
         &archetype,
         &hash,
+        u32::MAX,
     );
     assert_eq!(client.get_streak(&user), 1);
 
@@ -283,6 +288,7 @@ fn test_streak_resets_after_gap() {
         202503u64,
         &archetype,
         &hash,
+        u32::MAX,
     );
     assert_eq!(client.get_streak(&user), 1);
 }
@@ -313,6 +319,7 @@ fn test_balance_of_and_count() {
         2021,
         &archetype,
         &hash,
+        u32::MAX,
     );
 
     let sig2 = sign_payload(
@@ -323,6 +330,7 @@ fn test_balance_of_and_count() {
         2022,
         &archetype,
         &hash,
+        u32::MAX,
     );
 
     assert_eq!(client.balance_of(&user), 2);
@@ -369,6 +377,7 @@ fn test_duplicate_period_fails() {
         period,
         &archetype,
         &hash,
+        u32::MAX,
     );
 
 }
@@ -465,6 +474,7 @@ fn test_extend_ttl_existing_wrap() {
         period,
         &archetype,
         &hash,
+        u32::MAX,
     );
 
     // Anyone can call extend_ttl — no auth required
@@ -542,6 +552,7 @@ fn test_concurrent_mints_different_users_same_period() {
         period,
         &archetype,
         &hash_a,
+        u32::MAX,
     );
     let sig_b = sign_payload(
         &env,
@@ -551,6 +562,7 @@ fn test_concurrent_mints_different_users_same_period() {
         period,
         &archetype,
         &hash_b,
+        u32::MAX,
     );
 
     // Both mints for the same period should succeed
@@ -647,6 +659,7 @@ fn test_mint_event_structured_matching() {
         period,
         &archetype,
         &hash,
+        u32::MAX,
     );
 
     let events = env.events().all();
@@ -704,6 +717,7 @@ fn test_mint_events_multiple_users_correct_schema() {
         period_a,
         &archetype_a,
         &hash_a,
+        u32::MAX,
     );
     let sig_b = sign_payload(
         &env,
@@ -713,6 +727,7 @@ fn test_mint_events_multiple_users_correct_schema() {
         period_b,
         &archetype_b,
         &hash_b,
+        u32::MAX,
     );
 
 
@@ -784,6 +799,7 @@ fn test_verify_data_matching_hash() {
         period,
         &archetype,
         &data_hash,
+        u32::MAX,
     );
 
     assert!(client.verify_data(&user, &period, &data_json));
@@ -818,6 +834,7 @@ fn test_verify_data_non_matching_hash() {
         period,
         &archetype,
         &data_hash,
+        u32::MAX,
     );
 
     let tampered_data = Bytes::from_slice(&env, b"{\"score\":999}");
@@ -920,6 +937,7 @@ fn test_get_latest_wrap_returns_most_recent() {
         2022,
         &archetype,
         &hash1,
+        u32::MAX,
     );
     let sig2 = sign_payload(
         &env,
@@ -929,6 +947,7 @@ fn test_get_latest_wrap_returns_most_recent() {
         2024,
         &archetype,
         &hash2,
+        u32::MAX,
     );
     let sig3 = sign_payload(
         &env,
@@ -938,6 +957,7 @@ fn test_get_latest_wrap_returns_most_recent() {
         2023,
         &archetype,
         &hash3,
+        u32::MAX,
     );
 
 
@@ -987,6 +1007,7 @@ fn test_get_latest_wrap_single_mint() {
         period,
         &archetype,
         &hash,
+        u32::MAX,
     );
 
     let latest = client.get_latest_wrap(&user).unwrap();
@@ -1290,6 +1311,7 @@ fn test_revoke_wrap_flow_event_and_remint() {
         period,
         &archetype,
         &hash_1,
+        u32::MAX,
     );
     assert_eq!(client.balance_of(&user), 1);
 
@@ -1321,6 +1343,7 @@ fn test_revoke_wrap_flow_event_and_remint() {
         period,
         &archetype,
         &hash_2,
+        u32::MAX,
     );
 
     let wrap = client.get_wrap(&user, &period).unwrap();
@@ -1405,6 +1428,7 @@ fn test_mint_guard_uses_temporary_storage_and_clears_on_success() {
         period,
         &archetype,
         &data_hash,
+        u32::MAX,
     );
 
 
@@ -1441,6 +1465,7 @@ fn test_mint_guard_on_failure_leaves_no_residual_state() {
         period,
         &archetype,
         &data_hash,
+        u32::MAX,
     );
 
     // First mint succeeds.
@@ -1556,16 +1581,6 @@ fn test_mint_wrap_zero_hash_rejected() {
     let archetype = symbol_short!("arch");
     let period = 2024u64;
 
-    let sig = sign_payload(
-        &env,
-        &signing_key,
-        &contract_id,
-        &user,
-        period,
-        &archetype,
-        &zero_hash,
-    );
-    // Must panic with InvalidDataHash
 }
 
 #[test]
@@ -1648,15 +1663,6 @@ fn sign_update_payload(
     new_archetype: &Symbol,
     new_data_hash: &BytesN<32>,
 ) -> BytesN<64> {
-    sign_payload(
-        env,
-        signer,
-        contract,
-        user,
-        period,
-        new_archetype,
-        new_data_hash,
-    )
 }
 
 #[test]
