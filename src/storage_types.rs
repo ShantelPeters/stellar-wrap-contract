@@ -72,6 +72,8 @@ pub enum DataKey {
     MerkleClaimed(Address, u64),
     /// User privacy opt-out flag (persistent)
     UserOptOut(Address),
+    /// Circuit breaker pause flag (instance storage)
+    Paused,
 }
 
 /// Current schema version written by `initialize()` and advanced by `migrate()`.

@@ -1781,3 +1781,220 @@ fn test_admin_can_revoke_opted_out_wrap() {
     client.revoke_wrap(&user, &period);
     assert_eq!(client.balance_of(&user), 0);
 }
+
+#[test]
+fn test_admin_can_pause_contract() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[70u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    client.pause();
+}
+
+#[test]
+fn test_admin_can_unpause_contract() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[71u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    client.pause();
+    client.unpause();
+}
+
+#[test]
+fn test_non_admin_cannot_pause() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[72u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+
+    env.mock_auths(&non_admin, &non_admin);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.pause();
+    }));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_minting_blocked_when_paused() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[73u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    client.pause();
+
+    let period = 2025u64;
+    let archetype = symbol_short!("arch");
+    let hash = BytesN::from_array(&env, &[90u8; 32]);
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+    }));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_claiming_blocked_when_paused() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[74u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    client.pause();
+
+    let period = 2025u64;
+    let archetype = symbol_short!("arch");
+    let hash = BytesN::from_array(&env, &[91u8; 32]);
+    let proof = soroban_sdk::Vec::new(&env);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.claim_wrap(&user, &period, &archetype, &hash, &proof);
+    }));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_read_functions_work_when_paused() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[75u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let period = 2025u64;
+    let archetype = symbol_short!("arch");
+    let hash = BytesN::from_array(&env, &[92u8; 32]);
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash);
+    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+
+    client.pause();
+
+    // Read functions should still work
+    assert!(client.get_wrap(&user, &period).is_some());
+    assert_eq!(client.balance_of(&user), 1);
+    assert_eq!(client.get_streak(&user), 1);
+    assert!(client.get_latest_wrap(&user).is_some());
+}
+
+#[test]
+fn test_minting_resumes_after_unpause() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[76u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    client.pause();
+    client.unpause();
+
+    let period = 2025u64;
+    let archetype = symbol_short!("arch");
+    let hash = BytesN::from_array(&env, &[93u8; 32]);
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash);
+
+    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+    assert!(client.get_wrap(&user, &period).is_some());
+}
+
+#[test]
+fn test_pause_emits_event() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[77u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    client.pause();
+
+    let events = env.events().all();
+    let last_event = events.last().expect("No events found");
+    let (_, topics, data) = last_event;
+
+    let event_topic: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let event_status: bool = data.try_into_val(&env).unwrap();
+
+    assert_eq!(event_topic, symbol_short!("pause"));
+    assert_eq!(event_status, true);
+}
+
+#[test]
+fn test_unpause_emits_event() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[78u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    client.pause();
+    client.unpause();
+
+    let events = env.events().all();
+    let last_event = events.last().expect("No events found");
+    let (_, topics, data) = last_event;
+
+    let event_topic: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let event_status: bool = data.try_into_val(&env).unwrap();
+
+    assert_eq!(event_topic, symbol_short!("pause"));
+    assert_eq!(event_status, false);
+}
+

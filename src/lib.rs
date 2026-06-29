@@ -49,6 +49,8 @@ pub enum ContractError {
     InvalidMigration = 11,
     /// Storage deposit/budget exceeded (code 12)
     StorageDepositExceeded = 12,
+    /// Contract is paused and minting is disabled (code 13)
+    ContractPaused = 13,
 }
 
 
@@ -103,6 +105,49 @@ impl StellarWrapContract {
             (symbol_short!("admin"), symbol_short!("updated")),
             (current_admin, new_admin),
         );
+    }
+
+    /// Pause the contract to disable minting (admin-only).
+    ///
+    /// This is a circuit breaker mechanism that allows the admin to pause minting
+    /// in case of a discovered vulnerability while a fix is prepared.
+    ///
+    /// # Authorization
+    /// Requires authorization from the **admin**.
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if the contract has not been initialized.
+    pub fn pause(e: Env) {
+        let admin: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+        admin.require_auth();
+        e.storage().instance().set(&DataKey::Paused, &true);
+
+        e.events()
+            .publish((symbol_short!("pause"), symbol_short!("status")), true);
+    }
+
+    /// Unpause the contract to re-enable minting (admin-only).
+    ///
+    /// # Authorization
+    /// Requires authorization from the **admin**.
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if the contract has not been initialized.
+    pub fn unpause(e: Env) {
+        let admin: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+        admin.require_auth();
+        e.storage().instance().set(&DataKey::Paused, &false);
+
+        e.events()
+            .publish((symbol_short!("pause"), symbol_short!("status")), false);
     }
 
     /// Charge storage deposit units for a user before performing a persistent write.
@@ -201,6 +246,11 @@ impl StellarWrapContract {
         data_hash: BytesN<32>,
         signature: BytesN<64>,
     ) {
+        // 0. Circuit breaker: Check if contract is paused
+        if e.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+            panic_with_error!(e, ContractError::ContractPaused);
+        }
+
         // 1. Security: Ensure the user actually signed this transaction
         user.require_auth();
 
@@ -294,6 +344,10 @@ impl StellarWrapContract {
         data_hash: BytesN<32>,
         proof: soroban_sdk::Vec<BytesN<32>>,
     ) {
+        // 0. Circuit breaker: Check if contract is paused
+        if e.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+            panic_with_error!(e, ContractError::ContractPaused);
+        }
 
         user.require_auth();
 
