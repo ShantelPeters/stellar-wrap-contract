@@ -81,7 +81,11 @@ impl StellarWrapContract {
         e.storage().instance().set(&DataKey::Admin, &new_admin);
 
         e.events().publish(
-            (symbol_short!("admin"), symbol_short!("updated")),
+            (
+                symbol_short!("v1"),
+                symbol_short!("admin"),
+                symbol_short!("updated"),
+            ),
             (current_admin, new_admin),
         );
     }
@@ -353,6 +357,14 @@ impl StellarWrapContract {
             .instance()
             .set(&DataKey::LastMintTimestamp, &e.ledger().timestamp());
 
+        // Clear guard on successful completion.
+        e.storage().temporary().remove(&guard_key);
+
+        // 8. Emit Event
+        e.events().publish(
+            (symbol_short!("v1"), symbol_short!("mint"), user, period),
+            archetype,
+        );
         e.events()
             .publish((symbol_short!("mint"), user, period), archetype);
     }
@@ -460,8 +472,10 @@ impl StellarWrapContract {
             .persistent()
             .extend_ttl(&wrap_key, DEFAULT_TTL_LEDGERS, DEFAULT_TTL_LEDGERS);
 
-        e.events()
-            .publish((symbol_short!("update"), user, period), new_archetype);
+        e.events().publish(
+            (symbol_short!("v1"), symbol_short!("update"), user, period),
+            new_archetype,
+        );
     }
 
     /// Store an auxiliary data hash for tiered verification (admin-only).
@@ -568,22 +582,6 @@ impl StellarWrapContract {
                 .set(&count_key, &(current_count - 1));
         }
 
-        let total: u64 = e
-            .storage()
-            .instance()
-            .get(&DataKey::TotalMints)
-            .unwrap_or(0);
-        if total > 0 {
-            e.storage()
-                .instance()
-                .set(&DataKey::TotalMints, &(total - 1));
-        }
-
-        // Streak is not recalculated on revoke to avoid expensive on-chain scans.
-        // This means streak may temporarily remain stale after a removal.
-
-        e.events()
-            .publish((symbol_short!("revoke"), user, period), true);
     }
 
     // --- Read Functions ---
