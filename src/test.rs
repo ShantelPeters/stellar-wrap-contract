@@ -191,6 +191,7 @@ fn test_streak_after_first_mint_is_one() {
 
     client.initialize(&admin, &admin_pubkey);
     env.mock_all_auths();
+    register_test_archetypes(&client);
 
     let period = 202402u64;
     let archetype = symbol_short!("arch");
@@ -222,6 +223,7 @@ fn test_streak_increments_for_consecutive_months_and_year_boundary() {
 
     client.initialize(&admin, &admin_pubkey);
     env.mock_all_auths();
+    register_test_archetypes(&client);
 
     let archetype = symbol_short!("arch");
     let hash = BytesN::from_array(&env, &[2u8; 32]);
@@ -264,6 +266,7 @@ fn test_streak_resets_after_gap() {
 
     client.initialize(&admin, &admin_pubkey);
     env.mock_all_auths();
+    register_test_archetypes(&client);
 
     let archetype = symbol_short!("arch");
     let hash = BytesN::from_array(&env, &[3u8; 32]);
@@ -408,6 +411,17 @@ fn test_token_metadata() {
         String::from_str(&env, "Stellar Wrap Registry")
     );
     assert_eq!(client.symbol(), String::from_str(&env, "WRAP"));
+}
+
+// ─── Issue #48: version tests ───────────────────────────────────────────────
+
+#[test]
+fn test_version_returns_expected_value() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.version(), 1);
 }
 
 // ─── Issue #56: contract_info tests ─────────────────────────────────────────

@@ -3,6 +3,9 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, panic_with_error, symbol_short, xdr::ToXdr, Address,
 
+/// The current contract version. Bump this on every upgrade.
+const VERSION: u32 = 1;
+
 soroban_sdk::contractmeta!(
     key = "Description",
     val = "Soulbound token registry for Stellar Wrap"
@@ -870,6 +873,11 @@ impl StellarWrapContract {
     /// Return the number of decimals. Soulbound tokens are non-divisible, so this is always `0`.
     pub fn decimals(_e: Env) -> u32 {
         TOKEN_DECIMALS
+    }
+
+    /// Return the deployed contract version. Bump `VERSION` on every upgrade.
+    pub fn version(_e: Env) -> u32 {
+        VERSION
     }
 
     /// Return contract-level metadata useful for explorers and indexers.
