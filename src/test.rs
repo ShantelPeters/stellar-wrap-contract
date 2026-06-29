@@ -1781,3 +1781,190 @@ fn test_admin_can_revoke_opted_out_wrap() {
     client.revoke_wrap(&user, &period);
     assert_eq!(client.balance_of(&user), 0);
 }
+
+// ─── Issue #120: archetype sanitization tests ───────────────────────────────
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_mint_empty_archetype_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[70u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let hash = BytesN::from_array(&env, &[1u8; 32]);
+    let period = 2025u64;
+    // Empty symbol — should be rejected
+    let archetype = Symbol::new(&env, "");
+
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash);
+    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+}
+
+#[test]
+fn test_mint_max_length_archetype_accepted() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[71u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let hash = BytesN::from_array(&env, &[2u8; 32]);
+    let period = 2025u64;
+    // Exactly 20 characters — should succeed
+    let archetype = Symbol::new(&env, "soroban_architect_xx");
+
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash);
+    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+
+    let wrap = client.get_wrap(&user, &period).unwrap();
+    assert_eq!(wrap.archetype, archetype);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_mint_over_max_archetype_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[72u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let hash = BytesN::from_array(&env, &[3u8; 32]);
+    let period = 2025u64;
+    // 21 characters — should be rejected
+    let archetype = Symbol::new(&env, "soroban_architect_xxx");
+
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash);
+    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_mint_archetype_uppercase_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[73u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let hash = BytesN::from_array(&env, &[4u8; 32]);
+    let period = 2025u64;
+    // Uppercase letter — should be rejected
+    let archetype = Symbol::new(&env, "Builder");
+
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash);
+    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+}
+
+#[test]
+fn test_mint_archetype_valid_chars_accepted() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[74u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let hash = BytesN::from_array(&env, &[5u8; 32]);
+    let period = 2025u64;
+    // Valid: lowercase + digits + underscore
+    let archetype = Symbol::new(&env, "defi_patron_99");
+
+    let sig = sign_payload(&env, &signing_key, &contract_id, &user, period, &archetype, &hash);
+    client.mint_wrap(&user, &period, &archetype, &hash, &sig);
+
+    let wrap = client.get_wrap(&user, &period).unwrap();
+    assert_eq!(wrap.archetype, archetype);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_claim_wrap_invalid_archetype_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[75u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let hash = BytesN::from_array(&env, &[6u8; 32]);
+    let period = 2025u64;
+    // Empty archetype via claim_wrap — should be rejected
+    let archetype = Symbol::new(&env, "");
+    let root = BytesN::from_array(&env, &[99u8; 32]);
+    client.set_merkle_root(&period, &root);
+
+    let proof = soroban_sdk::vec![&env];
+    client.claim_wrap(&user, &period, &archetype, &hash, &proof);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_update_wrap_invalid_archetype_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[76u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    // First mint a valid wrap
+    let hash = BytesN::from_array(&env, &[7u8; 32]);
+    let period = 2025u64;
+    let valid_archetype = symbol_short!("builder");
+
+    let sig = sign_payload(
+        &env, &signing_key, &contract_id, &user, period, &valid_archetype, &hash,
+    );
+    client.mint_wrap(&user, &period, &valid_archetype, &hash, &sig);
+
+    // Now try updating with an uppercase archetype — should be rejected
+    let new_hash = BytesN::from_array(&env, &[8u8; 32]);
+    let invalid_archetype = Symbol::new(&env, "Builder");
+
+    let update_sig = sign_payload(
+        &env, &signing_key, &contract_id, &user, period, &invalid_archetype, &new_hash,
+    );
+    client.update_wrap(&user, &period, &new_hash, &invalid_archetype, &update_sig);
+}

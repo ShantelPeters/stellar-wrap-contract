@@ -49,8 +49,14 @@ pub enum ContractError {
     InvalidMigration = 11,
     /// Storage deposit/budget exceeded (code 12)
     StorageDepositExceeded = 12,
+    /// The archetype symbol is empty, too long, or contains invalid characters. (code 13)
+    InvalidArchetype = 13,
 }
 
+
+/// Maximum allowed length for archetype symbols (in characters).
+/// Accommodates all known archetypes (e.g. `"soroban_architect"` = 17 chars) with headroom.
+const MAX_ARCHETYPE_LEN: u32 = 20;
 
 #[contract]
 pub struct StellarWrapContract;
@@ -163,6 +169,37 @@ impl StellarWrapContract {
         }
     }
 
+    /// Validate that `archetype` is non-empty, at most [`MAX_ARCHETYPE_LEN`] characters,
+    /// and contains only lowercase alphanumeric + underscore characters (`[a-z0-9_]`).
+    ///
+    /// # Panics
+    /// - [`ContractError::InvalidArchetype`] if validation fails.
+    fn validate_archetype(e: &Env, archetype: &Symbol) {
+        // Serialize Symbol to XDR (ScVal::Symbol format):
+        //   bytes 0..3  = ScVal discriminant (0x0000000e for Symbol)
+        //   bytes 4..7  = string length (big-endian u32)
+        //   bytes 8..   = ASCII character data + 0-3 pad bytes
+        let xdr = archetype.to_xdr(e);
+        let b4 = xdr.get(4).unwrap_or(0) as u32;
+        let b5 = xdr.get(5).unwrap_or(0) as u32;
+        let b6 = xdr.get(6).unwrap_or(0) as u32;
+        let b7 = xdr.get(7).unwrap_or(0) as u32;
+        let len = (b4 << 24) | (b5 << 16) | (b6 << 8) | b7;
+
+        if len == 0 || len > MAX_ARCHETYPE_LEN {
+            panic_with_error!(e, ContractError::InvalidArchetype);
+        }
+        // Enforce lowercase alphanumeric + underscore only
+        for i in 0..len {
+            let c = xdr.get(i + 8).unwrap();
+            let valid = (c >= b'a' && c <= b'z')
+                || (c >= b'0' && c <= b'9')
+                || c == b'_';
+            if !valid {
+                panic_with_error!(e, ContractError::InvalidArchetype);
+            }
+        }
+    }
 
     /// Mint a soulbound wrap record for a user.
     ///
@@ -211,6 +248,9 @@ impl StellarWrapContract {
             panic_with_error!(e, ContractError::Unauthorized);
         }
         e.storage().temporary().set(&guard_key, &true);
+
+        // 1c. Validate archetype format
+        Self::validate_archetype(&e, &archetype);
 
         // 2. Verify initialization
         let admin_pubkey: BytesN<32> = e
@@ -302,6 +342,9 @@ impl StellarWrapContract {
             panic_with_error!(e, ContractError::Unauthorized);
         }
         e.storage().temporary().set(&guard_key, &true);
+
+        // Validate archetype format
+        Self::validate_archetype(&e, &archetype);
 
         e.storage()
             .instance()
@@ -617,6 +660,9 @@ impl StellarWrapContract {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
         admin.require_auth();
+
+        // Validate archetype format
+        Self::validate_archetype(&e, &new_archetype);
 
         let admin_pubkey: BytesN<32> = e
             .storage()

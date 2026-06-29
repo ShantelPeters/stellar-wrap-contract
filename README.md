@@ -239,10 +239,29 @@ The mint reentrancy guard uses Soroban temporary storage, not persistent storage
 
 ### Error Codes
 
-| Code | Error |
-| --- | --- |
-| 1 | `AlreadyInitialized` |
-| 2 | `NotInitialized` |
-| 3 | `Unauthorized` |
-| 4 | `WrapAlreadyExists` |
-| 5 | `InvalidSignature` |
+| Code | Error | Description |
+| --- | --- | --- |
+| 1 | `AlreadyInitialized` | `initialize()` was called more than once |
+| 2 | `NotInitialized` | Function called before `initialize()` |
+| 3 | `Unauthorized` | Caller is not the admin / reentrancy detected |
+| 4 | `WrapAlreadyExists` | A wrap for this `(user, period)` already exists |
+| 5 | `WrapNotFound` | No wrap record found for the given `(user, period)` |
+| 6 | `InvalidSignature` | Ed25519 signature verification failed |
+| 7 | `InvalidDataHash` | `data_hash` is all-zero bytes |
+| 8 | `MerkleRootNotSet` | No merkle root published for this period |
+| 9 | `InvalidMerkleProof` | Merkle proof does not verify against stored root |
+| 10 | `MerkleAlreadyClaimed` | This `(user, period)` merkle claim already redeemed |
+| 11 | `InvalidMigration` | `migrate()` called with invalid version parameters |
+| 12 | `StorageDepositExceeded` | Storage deposit budget exceeded |
+| 13 | `InvalidArchetype` | Archetype is empty, too long (>20 chars), or contains invalid characters |
+
+### Archetype Format
+
+Archetype symbols must conform to the following rules:
+
+- **Allowed characters:** lowercase letters (`a-z`), digits (`0-9`), and underscore (`_`)
+- **Length:** 1–20 characters (inclusive)
+- **Examples:** `soroban_architect`, `defi_patron`, `diamond_hand`, `builder_99`
+
+Uppercase letters are rejected to prevent case-variant duplicates in storage.
+
