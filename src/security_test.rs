@@ -14,6 +14,50 @@ use soroban_sdk::{
     Address, Bytes, BytesN, Env, Symbol,
 };
 
+const INITIALIZE_CPU_LIMIT: u64 = 1_000_000;
+const INITIALIZE_MEM_LIMIT: u64 = 60_000;
+const GET_WRAP_CPU_LIMIT: u64 = 500_000;
+const GET_WRAP_MEM_LIMIT: u64 = 25_000;
+const BALANCE_OF_CPU_LIMIT: u64 = 200_000;
+const BALANCE_OF_MEM_LIMIT: u64 = 10_000;
+const VERIFY_DATA_CPU_LIMIT: u64 = 1_500_000;
+const VERIFY_DATA_MEM_LIMIT: u64 = 40_000;
+const GET_LATEST_WRAP_ONE_CPU_LIMIT: u64 = 600_000;
+const GET_LATEST_WRAP_ONE_MEM_LIMIT: u64 = 30_000;
+const GET_LATEST_WRAP_FIVE_CPU_LIMIT: u64 = 1_200_000;
+const GET_LATEST_WRAP_FIVE_MEM_LIMIT: u64 = 50_000;
+const EXTEND_TTL_CPU_LIMIT: u64 = 1_200_000;
+const EXTEND_TTL_MEM_LIMIT: u64 = 40_000;
+const REVOKE_WRAP_CPU_LIMIT: u64 = 2_000_000;
+const REVOKE_WRAP_MEM_LIMIT: u64 = 60_000;
+const UPDATE_ADMIN_CPU_LIMIT: u64 = 700_000;
+const UPDATE_ADMIN_MEM_LIMIT: u64 = 25_000;
+
+fn print_benchmark_row(name: &str, cpu: u64, mem: u64, cpu_limit: u64, mem_limit: u64) {
+    println!(
+        "GAS BENCHMARK | {:<22} | CPU: {:>9} / {:>9} | MEM: {:>7} / {:>7}",
+        name, cpu, cpu_limit, mem, mem_limit
+    );
+}
+
+fn assert_benchmark(name: &str, cpu_insns: u64, mem_bytes: u64, cpu_limit: u64, mem_limit: u64) {
+    print_benchmark_row(name, cpu_insns, mem_bytes, cpu_limit, mem_limit);
+    assert!(
+        cpu_insns <= cpu_limit,
+        "{} CPU instructions too high: {} > {}",
+        name,
+        cpu_insns,
+        cpu_limit
+    );
+    assert!(
+        mem_bytes <= mem_limit,
+        "{} memory bytes too high: {} > {}",
+        name,
+        mem_bytes,
+        mem_limit
+    );
+}
+
 /// Helper function to sign payloads for testing
 fn sign_payload(
     env: &Env,
@@ -464,6 +508,307 @@ fn test_gas_analysis_multiple_mints() {
     // Verify resource usage is within reasonable bounds for batch operations
     assert!(cpu_insns < 50_000_000, "Batch CPU too high: {}", cpu_insns);
     assert!(mem_bytes < 500_000, "Batch memory too high: {}", mem_bytes);
+}
+
+fn prepare_initialized_contract(env: &Env) -> (StellarWrapContractClient, Address, Address, SigningKey) {
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(env, &contract_id);
+    let signing_key = SigningKey::from_bytes(&[1u8; 32]);
+    let admin_pubkey = BytesN::from_array(env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(env);
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+    (client, contract_id, admin, signing_key)
+}
+
+#[test]
+fn test_gas_analysis_initialize() {
+    let env = Env::default();
+    env.budget().reset_unlimited();
+
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+    let signing_key = SigningKey::from_bytes(&[1u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+
+    env.budget().reset_default();
+    client.initialize(&admin, &admin_pubkey);
+
+    let cpu_insns = env.budget().cpu_instruction_cost();
+    let mem_bytes = env.budget().memory_bytes_cost();
+    assert_benchmark(
+        "initialize",
+        cpu_insns,
+        mem_bytes,
+        INITIALIZE_CPU_LIMIT,
+        INITIALIZE_MEM_LIMIT,
+    );
+}
+
+#[test]
+fn test_gas_analysis_get_wrap() {
+    let env = Env::default();
+    env.budget().reset_unlimited();
+
+    let (client, contract_id, _admin, signing_key) = prepare_initialized_contract(&env);
+    let user = Address::generate(&env);
+    let data_hash = BytesN::from_array(&env, &[42u8; 32]);
+    let archetype = symbol_short!("architect");
+    let period = 202512u64;
+    let signature = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &data_hash,
+    );
+
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    env.budget().reset_default();
+
+    let _ = client.get_wrap(&user, &period);
+    let cpu_insns = env.budget().cpu_instruction_cost();
+    let mem_bytes = env.budget().memory_bytes_cost();
+    assert_benchmark("get_wrap", cpu_insns, mem_bytes, GET_WRAP_CPU_LIMIT, GET_WRAP_MEM_LIMIT);
+}
+
+#[test]
+fn test_gas_analysis_balance_of() {
+    let env = Env::default();
+    env.budget().reset_unlimited();
+
+    let (client, _contract_id, _admin, signing_key) = prepare_initialized_contract(&env);
+    let user = Address::generate(&env);
+    let data_hash = BytesN::from_array(&env, &[42u8; 32]);
+    let archetype = symbol_short!("architect");
+    let period = 202512u64;
+    let signature = sign_payload(
+        &env,
+        &signing_key,
+        &env.current_contract_address(),
+        &user,
+        period,
+        &archetype,
+        &data_hash,
+    );
+
+    // Mint a wrap to populate balance
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    env.budget().reset_default();
+
+    let _ = client.balance_of(&user);
+    let cpu_insns = env.budget().cpu_instruction_cost();
+    let mem_bytes = env.budget().memory_bytes_cost();
+    assert_benchmark(
+        "balance_of",
+        cpu_insns,
+        mem_bytes,
+        BALANCE_OF_CPU_LIMIT,
+        BALANCE_OF_MEM_LIMIT,
+    );
+}
+
+#[test]
+fn test_gas_analysis_verify_data() {
+    let env = Env::default();
+    env.budget().reset_unlimited();
+
+    let (client, contract_id, _admin, signing_key) = prepare_initialized_contract(&env);
+    let user = Address::generate(&env);
+    let data_hash = BytesN::from_array(&env, &[42u8; 32]);
+    let archetype = symbol_short!("architect");
+    let period = 202512u64;
+    let signature = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &data_hash,
+    );
+
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    let data = Bytes::from_array(&env, &[1u8; 32]);
+    env.budget().reset_default();
+
+    let _ = client.verify_data(&user, &period, &data);
+    let cpu_insns = env.budget().cpu_instruction_cost();
+    let mem_bytes = env.budget().memory_bytes_cost();
+    assert_benchmark(
+        "verify_data",
+        cpu_insns,
+        mem_bytes,
+        VERIFY_DATA_CPU_LIMIT,
+        VERIFY_DATA_MEM_LIMIT,
+    );
+}
+
+#[test]
+fn test_gas_analysis_get_latest_wrap_one() {
+    let env = Env::default();
+    env.budget().reset_unlimited();
+
+    let (client, contract_id, _admin, signing_key) = prepare_initialized_contract(&env);
+    let user = Address::generate(&env);
+    let data_hash = BytesN::from_array(&env, &[42u8; 32]);
+    let archetype = symbol_short!("architect");
+    let period = 202512u64;
+    let signature = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &data_hash,
+    );
+
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    env.budget().reset_default();
+
+    let _ = client.get_latest_wrap(&user);
+    let cpu_insns = env.budget().cpu_instruction_cost();
+    let mem_bytes = env.budget().memory_bytes_cost();
+    assert_benchmark(
+        "get_latest_wrap_1",
+        cpu_insns,
+        mem_bytes,
+        GET_LATEST_WRAP_ONE_CPU_LIMIT,
+        GET_LATEST_WRAP_ONE_MEM_LIMIT,
+    );
+}
+
+#[test]
+fn test_gas_analysis_get_latest_wrap_five() {
+    let env = Env::default();
+    env.budget().reset_unlimited();
+
+    let (client, contract_id, _admin, signing_key) = prepare_initialized_contract(&env);
+    let user = Address::generate(&env);
+    let archetype = symbol_short!("architect");
+
+    for i in 0..5 {
+        let data_hash = BytesN::from_array(&env, &[i as u8; 32]);
+        let period = 202512u64 + i as u64;
+        let signature = sign_payload(
+            &env,
+            &signing_key,
+            &contract_id,
+            &user,
+            period,
+            &archetype,
+            &data_hash,
+        );
+        client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    }
+
+    env.budget().reset_default();
+    let _ = client.get_latest_wrap(&user);
+    let cpu_insns = env.budget().cpu_instruction_cost();
+    let mem_bytes = env.budget().memory_bytes_cost();
+    assert_benchmark(
+        "get_latest_wrap_5",
+        cpu_insns,
+        mem_bytes,
+        GET_LATEST_WRAP_FIVE_CPU_LIMIT,
+        GET_LATEST_WRAP_FIVE_MEM_LIMIT,
+    );
+}
+
+#[test]
+fn test_gas_analysis_extend_ttl() {
+    let env = Env::default();
+    env.budget().reset_unlimited();
+
+    let (client, contract_id, _admin, signing_key) = prepare_initialized_contract(&env);
+    let user = Address::generate(&env);
+    let data_hash = BytesN::from_array(&env, &[42u8; 32]);
+    let archetype = symbol_short!("architect");
+    let period = 202512u64;
+    let signature = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &data_hash,
+    );
+
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    env.budget().reset_default();
+
+    client.extend_ttl(&user, &period);
+    let cpu_insns = env.budget().cpu_instruction_cost();
+    let mem_bytes = env.budget().memory_bytes_cost();
+    assert_benchmark(
+        "extend_ttl",
+        cpu_insns,
+        mem_bytes,
+        EXTEND_TTL_CPU_LIMIT,
+        EXTEND_TTL_MEM_LIMIT,
+    );
+}
+
+#[test]
+fn test_gas_analysis_revoke_wrap() {
+    let env = Env::default();
+    env.budget().reset_unlimited();
+
+    let (client, contract_id, _admin, signing_key) = prepare_initialized_contract(&env);
+    let user = Address::generate(&env);
+    let data_hash = BytesN::from_array(&env, &[42u8; 32]);
+    let archetype = symbol_short!("architect");
+    let period = 202512u64;
+    let signature = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &data_hash,
+    );
+
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    env.budget().reset_default();
+
+    client.revoke_wrap(&user, &period);
+    let cpu_insns = env.budget().cpu_instruction_cost();
+    let mem_bytes = env.budget().memory_bytes_cost();
+    assert_benchmark(
+        "revoke_wrap",
+        cpu_insns,
+        mem_bytes,
+        REVOKE_WRAP_CPU_LIMIT,
+        REVOKE_WRAP_MEM_LIMIT,
+    );
+}
+
+#[test]
+fn test_gas_analysis_update_admin() {
+    let env = Env::default();
+    env.budget().reset_unlimited();
+
+    let (client, _contract_id, admin, signing_key) = prepare_initialized_contract(&env);
+    let new_admin = Address::generate(&env);
+    env.mock_all_auths();
+    env.budget().reset_default();
+
+    client.update_admin(&new_admin);
+    let cpu_insns = env.budget().cpu_instruction_cost();
+    let mem_bytes = env.budget().memory_bytes_cost();
+    assert_benchmark(
+        "update_admin",
+        cpu_insns,
+        mem_bytes,
+        UPDATE_ADMIN_CPU_LIMIT,
+        UPDATE_ADMIN_MEM_LIMIT,
+    );
 }
 
 /// Test 8: Timestamp Manipulation Resistance
