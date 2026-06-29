@@ -754,6 +754,14 @@ impl StellarWrapContract {
             .unwrap_or(0) as i128
     }
 
+    /// Return the total number of wraps minted across all users.
+    pub fn total_supply(e: Env) -> u64 {
+        e.storage()
+            .instance()
+            .get(&DataKey::TotalSupply)
+            .unwrap_or(0)
+    }
+
     /// Verify that the SHA-256 hash of `data` matches the `data_hash` stored in a wrap record.
     ///
     /// Useful for off-chain integrity checks: hash the original JSON off-chain, then call this
