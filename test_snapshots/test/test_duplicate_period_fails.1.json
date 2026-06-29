@@ -1195,6 +1195,9 @@
           "v0": {
             "topics": [
               {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+              },
+              {
                 "symbol": "mint"
               },
               {

@@ -97,7 +97,6 @@ impl StellarWrapContract {
 
         e.events().publish(
             (
-                symbol_short!("v1"),
                 symbol_short!("admin"),
                 symbol_short!("updated"),
             ),
@@ -314,7 +313,6 @@ impl StellarWrapContract {
             .set(&DataKey::MerkleRoot(period), &root);
 
         e.events().publish(
-            (symbol_short!("merkle"), symbol_short!("root"), period),
             root,
         );
     }
@@ -567,8 +565,6 @@ impl StellarWrapContract {
                 .set(&count_key, &(current_count - 1));
         }
 
-        e.events()
-            .publish((symbol_short!("cleanup"), user, period), true);
     }
 
     /// Admin-only revocation for incorrect or fraudulent records.
@@ -611,125 +607,6 @@ impl StellarWrapContract {
                 .set(&count_key, &(current_count - 1));
         }
 
-    }
-
-    pub fn revoke_campaign_wrap(e: Env, campaign: Symbol, user: Address, period: u64) {
-        let admin: Address = e
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
-        admin.require_auth();
-
-        let default_campaign = symbol_short!("default");
-        if campaign == default_campaign {
-            return Self::revoke_wrap(e, user, period);
-        }
-
-        let wrap_key = DataKey::CampaignWrap(campaign.clone(), user.clone(), period);
-        if !e.storage().persistent().has(&wrap_key) {
-            panic_with_error!(e, ContractError::WrapNotFound);
-        }
-
-        e.storage().persistent().remove(&wrap_key);
-
-        let count_key = DataKey::CampaignWrapCount(campaign.clone(), user.clone());
-        let current_count: u32 = e.storage().persistent().get(&count_key).unwrap_or(0);
-        if current_count > 0 {
-            e.storage()
-                .persistent()
-                .set(&count_key, &current_count.saturating_sub(1));
-        }
-
-        // Remove period from campaign period tracker
-        let periods_key = DataKey::CampaignUserPeriods(campaign.clone(), user.clone());
-        if let Some(periods) = e.storage().persistent().get::<_, soroban_sdk::Vec<u64>>(&periods_key) {
-            let updated_periods = Self::remove_period(&e, &periods, period);
-            e.storage().persistent().set(&periods_key, &updated_periods);
-        }
-
-        e.events().publish(
-            (symbol_short!("campaign"), symbol_short!("revoke"), campaign, user, period),
-            true,
-        );
-    }
-
-    /// Migrate a wrap record from one user address to another with consent from both parties.
-    ///
-    /// This is the only supported wallet migration path. Wraps remain soulbound and cannot
-    /// be transferred peer-to-peer via a generic `transfer_wrap` function.
-    pub fn migrate_wrap(e: Env, old_user: Address, new_user: Address, period: u64) {
-        if old_user == new_user {
-            panic_with_error!(e, ContractError::MigrateSameUser);
-        }
-
-        old_user.require_auth();
-        new_user.require_auth();
-
-        e.storage()
-            .instance()
-            .get::<_, Address>(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
-
-        let existing: WrapRecord = Self::load_wrap_record(&e, &old_user, period)
-            .unwrap_or_else(|| panic_with_error!(e, ContractError::WrapNotFound));
-
-        let new_wrap_key = DataKey::Wrap(new_user.clone(), period);
-        if e.storage().persistent().has(&new_wrap_key) {
-            panic_with_error!(e, ContractError::WrapAlreadyExists);
-        }
-
-        let archetype = existing.archetype.clone();
-
-        let old_wrap_key = DataKey::Wrap(old_user.clone(), period);
-        e.storage().persistent().remove(&old_wrap_key);
-
-        let old_count_key = DataKey::WrapCount(old_user.clone());
-        let old_count: u32 = e.storage().persistent().get(&old_count_key).unwrap_or(0);
-        if old_count > 0 {
-            e.storage()
-                .persistent()
-                .set(&old_count_key, &(old_count - 1));
-        }
-
-        let ttl_one_year = 17280 * 365;
-        if Self::schema_version(&e) < SCHEMA_VERSION_V2 {
-            let v1 = WrapRecordV1 {
-                timestamp: existing.timestamp,
-                data_hash: existing.data_hash.clone(),
-                archetype: archetype.clone(),
-                period: existing.period,
-            };
-            e.storage().persistent().set(&new_wrap_key, &v1);
-        } else {
-            e.storage().persistent().set(&new_wrap_key, &existing);
-        }
-        e.storage()
-            .persistent()
-            .extend_ttl(&new_wrap_key, ttl_one_year, ttl_one_year);
-
-        let new_count_key = DataKey::WrapCount(new_user.clone());
-        let new_count: u32 = e.storage().persistent().get(&new_count_key).unwrap_or(0);
-        e.storage()
-            .persistent()
-            .set(&new_count_key, &(new_count + 1));
-        e.storage()
-            .persistent()
-            .extend_ttl(&new_count_key, ttl_one_year, ttl_one_year);
-
-        let new_latest_key = DataKey::LatestPeriod(new_user.clone());
-        let current_latest: u64 = e.storage().persistent().get(&new_latest_key).unwrap_or(0);
-        if period > current_latest {
-            e.storage().persistent().set(&new_latest_key, &period);
-            e.storage()
-                .persistent()
-                .extend_ttl(&new_latest_key, ttl_one_year, ttl_one_year);
-        }
-
-        e.events().publish(
-            (symbol_short!("mwrap"), old_user.clone(), new_user.clone(), period),
-            archetype,
-        );
     }
 
     // --- Read Functions ---

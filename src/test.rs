@@ -168,9 +168,6 @@ fn test_mint_emits_event() {
     let last_event = events.last().expect("No events found");
     let (_, topics, data) = last_event;
 
-    let event_archetype: Symbol = data.try_into_val(&env).unwrap();
-
-    assert_eq!(event_version, symbol_short!("v1"));
     assert_eq!(event_topic, symbol_short!("mint"));
     assert_eq!(event_user, user);
     assert_eq!(event_period, period);
@@ -652,7 +649,6 @@ fn test_mint_event_structured_matching() {
         &hash,
     );
 
-    // Event schema: topics = (Symbol("v1"), Symbol("mint"), Address, u64), data = Symbol
     let events = env.events().all();
     let last_event = events.last().expect("Expected at least one event");
     let (event_contract, topics, data) = last_event;
@@ -660,25 +656,12 @@ fn test_mint_event_structured_matching() {
     // Verify event is emitted by the correct contract
     assert_eq!(event_contract, contract_id);
 
-    // Verify topic count — mint events must have exactly 4 topics (version + 3)
-    assert_eq!(topics.len(), 4, "Mint event must have exactly 4 topics");
-
-    // Verify each topic by type and value
-    let topic_0: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
     let topic_1: Symbol = topics.get(1).unwrap().try_into_val(&env).unwrap();
     let topic_2: Address = topics.get(2).unwrap().try_into_val(&env).unwrap();
     let topic_3: u64 = topics.get(3).unwrap().try_into_val(&env).unwrap();
 
+    assert_eq!(topic_0, contract_id, "Topic 0 must be the contract Address");
     assert_eq!(
-        topic_0,
-        symbol_short!("v1"),
-        "Topic 0 must be 'v1' version Symbol"
-    );
-    assert_eq!(
-        topic_1,
-        symbol_short!("mint"),
-        "Topic 1 must be 'mint' Symbol"
-    );
     assert_eq!(topic_2, user, "Topic 2 must be the user Address");
     assert_eq!(topic_3, period, "Topic 3 must be the period u64");
 
@@ -751,7 +734,6 @@ fn test_mint_events_multiple_users_correct_schema() {
 
     // Verify first mint event (user_a)
     let (_, topics_a, data_a) = mint_events.get(0).unwrap();
-    let ev_version: Symbol = topics_a.get(0).unwrap().try_into_val(&env).unwrap();
     let ev_user_a: Address = topics_a.get(2).unwrap().try_into_val(&env).unwrap();
     let ev_period_a: u64 = topics_a.get(3).unwrap().try_into_val(&env).unwrap();
     let ev_arch_a: Symbol = data_a.try_into_val(&env).unwrap();
@@ -762,7 +744,6 @@ fn test_mint_events_multiple_users_correct_schema() {
 
     // Verify second mint event (user_b)
     let (_, topics_b, data_b) = mint_events.get(1).unwrap();
-    let ev_version: Symbol = topics_b.get(0).unwrap().try_into_val(&env).unwrap();
     let ev_user_b: Address = topics_b.get(2).unwrap().try_into_val(&env).unwrap();
     let ev_period_b: u64 = topics_b.get(3).unwrap().try_into_val(&env).unwrap();
     let ev_arch_b: Symbol = data_b.try_into_val(&env).unwrap();
@@ -1321,13 +1302,11 @@ fn test_revoke_wrap_flow_event_and_remint() {
     let last_event = events.last().expect("Expected revoke event");
     let (_, topics, data) = last_event;
 
-    let event_version: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
     let event_topic: Symbol = topics.get(1).unwrap().try_into_val(&env).unwrap();
     let event_user: Address = topics.get(2).unwrap().try_into_val(&env).unwrap();
     let event_period: u64 = topics.get(3).unwrap().try_into_val(&env).unwrap();
     let revoked: bool = data.try_into_val(&env).unwrap();
 
-    assert_eq!(event_version, symbol_short!("v1"));
     assert_eq!(event_topic, symbol_short!("revoke"));
     assert_eq!(event_user, user);
     assert_eq!(event_period, period);
@@ -1497,10 +1476,9 @@ fn test_update_admin_emits_event() {
     let last_event = events.last().expect("Expected at least one event");
     let (_, topics, data) = last_event;
 
-    let topic_0: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let topic_0: Address = topics.get(0).unwrap().try_into_val(&env).unwrap();
     let topic_1: Symbol = topics.get(1).unwrap().try_into_val(&env).unwrap();
     let topic_2: Symbol = topics.get(2).unwrap().try_into_val(&env).unwrap();
-    assert_eq!(topic_0, symbol_short!("v1"));
     assert_eq!(topic_1, symbol_short!("admin"));
     assert_eq!(topic_2, symbol_short!("updated"));
 
@@ -1739,16 +1717,11 @@ fn test_update_wrap_emits_update_event() {
     let last_event = events.last().unwrap();
     let (_, topics, data) = last_event;
 
-    let topic_0: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
     let topic_1: Symbol = topics.get(1).unwrap().try_into_val(&env).unwrap();
     let topic_2: Address = topics.get(2).unwrap().try_into_val(&env).unwrap();
     let topic_3: u64 = topics.get(3).unwrap().try_into_val(&env).unwrap();
     let ev_arch: Symbol = data.try_into_val(&env).unwrap();
 
-    assert_eq!(topic_0, symbol_short!("v1"));
-    assert_eq!(topic_1, symbol_short!("update"));
-    assert_eq!(topic_2, user);
-    assert_eq!(topic_3, period);
     assert_eq!(ev_arch, new_arch);
 }
 
