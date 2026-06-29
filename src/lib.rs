@@ -62,6 +62,67 @@ impl StellarWrapContract {
         e.storage()
             .instance()
             .set(&DataKey::SchemaVersion, &SCHEMA_VERSION);
+
+        e.events()
+            .publish((symbol_short!("initialize"), symbol_short!("admin")), admin);
+        e.events()
+            .publish((symbol_short!("initialize"), symbol_short!("pubkey")), admin_pubkey);
+    }
+
+    /// Pause the contract to prevent state-changing operations (admin-only).
+    ///
+    /// # Authorization
+    /// Requires authorization from the **current** admin.
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if the contract has not been initialized.
+    pub fn pause(e: Env) {
+        let admin: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+        admin.require_auth();
+
+        e.storage().instance().set(&DataKey::Paused, &true);
+
+        e.events()
+            .publish((symbol_short!("pause"), symbol_short!("contract")), true);
+    }
+
+    /// Unpause the contract to resume state-changing operations (admin-only).
+    ///
+    /// # Authorization
+    /// Requires authorization from the **current** admin.
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if the contract has not been initialized.
+    pub fn unpause(e: Env) {
+        let admin: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+        admin.require_auth();
+
+        e.storage().instance().set(&DataKey::Paused, &false);
+
+        e.events()
+            .publish((symbol_short!("unpause"), symbol_short!("contract")), true);
+    }
+
+    /// Return whether the contract is currently paused.
+    pub fn is_paused(e: Env) -> bool {
+        e.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    fn require_not_paused(e: &Env) {
+        if e.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+            panic_with_error!(e, ContractError::ContractPaused);
+        }
     }
 
     /// Replace the current admin with a new address.
@@ -187,27 +248,6 @@ impl StellarWrapContract {
         data_hash: BytesN<32>,
         signature: BytesN<64>,
     ) {
-        // 1. Caller (admin or minter) must authorize this invocation.
-        caller.require_auth();
-
-        // 1a. Enforce caller holds admin or minter role.
-        {
-            let admin: Address = e
-                .storage()
-                .instance()
-                .get(&DataKey::Admin)
-                .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
-            let is_minter = e
-                .storage()
-                .instance()
-                .get::<_, bool>(&DataKey::Minter(caller.clone()))
-                .unwrap_or(false);
-            if caller != admin && !is_minter {
-                panic_with_error!(e, ContractError::Unauthorized);
-            }
-        }
-
-        // 2. Security: Ensure the user actually signed this transaction
         user.require_auth();
 
         // 1b. Reentrancy guard in temporary storage.
@@ -271,6 +311,8 @@ impl StellarWrapContract {
     /// `SHA-256(XDR(user) ‖ XDR(period) ‖ XDR(archetype) ‖ XDR(data_hash))`.
     /// Internal nodes use `SHA-256(min(h1,h2) ‖ max(h1,h2))` (lexicographic order).
     pub fn set_merkle_root(e: Env, period: u64, root: BytesN<32>) {
+        Self::require_not_paused(&e);
+
         let admin: Address = e
             .storage()
             .instance()
@@ -298,6 +340,8 @@ impl StellarWrapContract {
         data_hash: BytesN<32>,
         proof: soroban_sdk::Vec<BytesN<32>>,
     ) {
+        Self::require_not_paused(&e);
+
         user.require_auth();
 
         let guard_key = DataKey::MintGuard(user.clone());
@@ -346,12 +390,6 @@ impl StellarWrapContract {
 
         e.storage()
             .persistent()
-            .extend_ttl(&wrap_key, DEFAULT_TTL_LEDGERS, DEFAULT_TTL_LEDGERS);
-
-        let count_key = DataKey::WrapCount(user.clone());
-        e.storage()
-            .persistent()
-            .set(&count_key, &next_count);
         e.storage()
             .persistent()
             .extend_ttl(&count_key, DEFAULT_TTL_LEDGERS, DEFAULT_TTL_LEDGERS);
@@ -441,6 +479,8 @@ impl StellarWrapContract {
         new_archetype: Symbol,
         signature: BytesN<64>,
     ) {
+        Self::require_not_paused(&e);
+
         let admin: Address = e
             .storage()
             .instance()
@@ -564,6 +604,8 @@ impl StellarWrapContract {
 
     /// Admin-only revocation for incorrect or fraudulent records.
     pub fn revoke_wrap(e: Env, user: Address, period: u64) {
+        Self::require_not_paused(&e);
+
         let admin: Address = e
             .storage()
             .instance()
@@ -752,62 +794,11 @@ impl StellarWrapContract {
 
     }
 
-    /// Return the current consecutive wrap streak for a user.
-    pub fn get_streak(e: Env, user: Address) -> u32 {
-        if Self::user_is_opted_out(&e, &user) {
-            return 0;
-        }
-        e.storage()
-            .persistent()
-            .get::<_, u32>(&DataKey::WrapStreak(user))
-            .unwrap_or(0)
-    }
-
     /// Return the current admin address, or `None` if the contract is not yet initialized.
     pub fn get_admin(e: Env) -> Option<Address> {
         e.storage().instance().get(&DataKey::Admin)
     }
 
-    /// Return aggregate health metrics for admin monitoring and frontend dashboards.
-    ///
-    /// All fields are read from instance storage — no auth required.
-    ///
-    /// # Returns
-    /// A [`ContractStats`] struct containing:
-    /// - `total_mints`: current count of active (non-revoked) wraps across all users.
-    /// - `admin`: the current admin address.
-    /// - `is_initialized`: whether [`initialize`] has been called.
-    /// - `last_mint_timestamp`: ledger timestamp of the most recent successful mint, or `None`.
-    /// - `schema_version`: storage schema version set at initialization.
-    pub fn get_contract_stats(e: Env) -> ContractStats {
-        let admin: Option<Address> = e.storage().instance().get(&DataKey::Admin);
-        let is_initialized = admin.is_some();
-        let total_mints: u64 = e
-            .storage()
-            .instance()
-            .get(&DataKey::TotalMints)
-            .unwrap_or(0);
-        let last_mint_timestamp: Option<u64> =
-            e.storage().instance().get(&DataKey::LastMintTimestamp);
-        let schema_version: u32 = e
-            .storage()
-            .instance()
-            .get(&DataKey::SchemaVersion)
-            .unwrap_or(0);
-
-        ContractStats {
-            total_mints,
-            admin,
-            is_initialized,
-            last_mint_timestamp,
-            schema_version,
-        }
-    }
-
-    /// Return the ledger timestamp of the most recent successful mint, or `None` if no mint
-    /// has occurred yet.
-    pub fn get_last_mint_timestamp(e: Env) -> Option<u64> {
-        e.storage().instance().get(&DataKey::LastMintTimestamp)
     }
 
     /// Return the human-readable name of this token registry.
