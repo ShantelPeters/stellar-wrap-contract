@@ -658,8 +658,31 @@ impl StellarWrapContract {
             .persistent()
             .extend_ttl(&streak_key, ttl_one_year, ttl_one_year);
 
+        let arch_key = DataKey::ArchetypeCount(archetype.clone());
+        let arch_count: u64 = e.storage().persistent().get(&arch_key).unwrap_or(0);
+        e.storage()
+            .persistent()
+            .set(&arch_key, &(arch_count + 1));
+        e.storage()
+            .persistent()
+            .extend_ttl(&arch_key, ttl_one_year, ttl_one_year);
+
         e.events()
             .publish((symbol_short!("mint"), user, period), archetype);
+    }
+
+    fn decrement_archetype_count(e: &Env, archetype: &Symbol) {
+        let arch_key = DataKey::ArchetypeCount(archetype.clone());
+        let count: u64 = e.storage().persistent().get(&arch_key).unwrap_or(0);
+        if count > 0 {
+            let ttl_one_year = 17280 * 365;
+            e.storage()
+                .persistent()
+                .set(&arch_key, &(count - 1));
+            e.storage()
+                .persistent()
+                .extend_ttl(&arch_key, ttl_one_year, ttl_one_year);
+        }
     }
 
     fn load_wrap_record(e: &Env, user: &Address, period: u64) -> Option<WrapRecord> {
@@ -790,6 +813,10 @@ impl StellarWrapContract {
             panic_with_error!(e, ContractError::WrapNotFound);
         }
 
+        let existing: WrapRecord = Self::load_wrap_record(&e, &user, period)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::WrapNotFound));
+        Self::decrement_archetype_count(&e, &existing.archetype);
+
         e.storage().persistent().remove(&wrap_key);
 
         let count_key = DataKey::WrapCount(user.clone());
@@ -919,6 +946,14 @@ impl StellarWrapContract {
         e.storage()
             .persistent()
             .get::<_, u32>(&DataKey::WrapStreak(user))
+            .unwrap_or(0)
+    }
+
+    /// Return the global number of wraps minted with `archetype`.
+    pub fn get_archetype_count(e: Env, archetype: Symbol) -> u64 {
+        e.storage()
+            .persistent()
+            .get(&DataKey::ArchetypeCount(archetype))
             .unwrap_or(0)
     }
 

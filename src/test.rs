@@ -1938,3 +1938,146 @@ fn test_non_admin_cannot_remove_delegate() {
 
     client.remove_delegate(&delegate);
 }
+
+// ─── Issue #92: archetype rarity scoring tests ──────────────────────────────
+
+#[test]
+fn test_archetype_count_increments_on_mint() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[90u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let archetype = symbol_short!("builder");
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    assert_eq!(client.get_archetype_count(&archetype), 0);
+
+    let period = 2026u64;
+    let hash = BytesN::from_array(&env, &[91u8; 32]);
+    let sig = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &hash,
+    );
+    client.mint_wrap(&user, &period, &archetype, &hash, &sig, &None);
+
+    assert_eq!(client.get_archetype_count(&archetype), 1);
+}
+
+#[test]
+fn test_archetype_count_tracks_multiple_archetypes_independently() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[92u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    let arch_a = symbol_short!("builder");
+    let arch_b = symbol_short!("defi");
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let hash = BytesN::from_array(&env, &[93u8; 32]);
+    let sig_a = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user_a,
+        202601,
+        &arch_a,
+        &hash,
+    );
+    let sig_b = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user_b,
+        202601,
+        &arch_b,
+        &hash,
+    );
+    client.mint_wrap(&user_a, &202601, &arch_a, &hash, &sig_a, &None);
+    client.mint_wrap(&user_b, &202601, &arch_b, &hash, &sig_b, &None);
+
+    assert_eq!(client.get_archetype_count(&arch_a), 1);
+    assert_eq!(client.get_archetype_count(&arch_b), 1);
+}
+
+#[test]
+fn test_archetype_count_decrements_on_revoke() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[94u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let archetype = symbol_short!("arch");
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let period = 2026u64;
+    let hash = BytesN::from_array(&env, &[95u8; 32]);
+    let sig = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &user,
+        period,
+        &archetype,
+        &hash,
+    );
+    client.mint_wrap(&user, &period, &archetype, &hash, &sig, &None);
+    assert_eq!(client.get_archetype_count(&archetype), 1);
+
+    client.revoke_wrap(&user, &period);
+    assert_eq!(client.get_archetype_count(&archetype), 0);
+}
+
+#[test]
+fn test_archetype_count_revoke_at_zero_does_not_underflow() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let archetype = symbol_short!("arch");
+
+    client.initialize(&admin, &BytesN::from_array(&env, &[96u8; 32]));
+    env.mock_all_auths();
+
+    env.as_contract(&contract_id, || {
+        let wrap_key = DataKey::Wrap(user.clone(), 2026);
+        let record = crate::storage_types::WrapRecordV1 {
+            timestamp: env.ledger().timestamp(),
+            data_hash: BytesN::from_array(&env, &[97u8; 32]),
+            archetype: archetype.clone(),
+            period: 2026,
+        };
+        env.storage().persistent().set(&wrap_key, &record);
+        env.storage()
+            .persistent()
+            .set(&DataKey::WrapCount(user.clone()), &1u32);
+    });
+
+    assert_eq!(client.get_archetype_count(&archetype), 0);
+    client.revoke_wrap(&user, &2026);
+    assert_eq!(client.get_archetype_count(&archetype), 0);
+}

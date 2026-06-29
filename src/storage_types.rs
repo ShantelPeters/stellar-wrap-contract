@@ -76,6 +76,8 @@ pub enum DataKey {
     Delegate(Address),
     /// Ordered list of registered delegate addresses (instance storage)
     DelegateList,
+    /// Global count of wraps minted with this archetype
+    ArchetypeCount(Symbol),
 }
 
 /// Current schema version written by `initialize()` and advanced by `migrate()`.
