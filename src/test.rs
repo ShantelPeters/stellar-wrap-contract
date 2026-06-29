@@ -1387,14 +1387,18 @@ fn test_update_wrap_emits_update_event() {
     let last_event = events.last().unwrap();
     let (_, topics, data) = last_event;
 
-    let topic_0: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
-    let topic_1: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
-    let topic_2: u64 = topics.get(2).unwrap().try_into_val(&env).unwrap();
+    assert_eq!(topics.len(), 4, "Update event must have exactly 4 topics");
+
+    let topic_0: Address = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    let topic_1: Symbol = topics.get(1).unwrap().try_into_val(&env).unwrap();
+    let topic_2: Address = topics.get(2).unwrap().try_into_val(&env).unwrap();
+    let topic_3: u64 = topics.get(3).unwrap().try_into_val(&env).unwrap();
     let ev_arch: Symbol = data.try_into_val(&env).unwrap();
 
-    assert_eq!(topic_0, symbol_short!("update"));
-    assert_eq!(topic_1, user);
-    assert_eq!(topic_2, period);
+    assert_eq!(topic_0, contract_id, "Topic 0 must be the contract Address");
+    assert_eq!(topic_1, symbol_short!("update"), "Topic 1 must be 'update'");
+    assert_eq!(topic_2, user, "Topic 2 must be the user Address");
+    assert_eq!(topic_3, period, "Topic 3 must be the period u64");
     assert_eq!(ev_arch, new_arch);
 }
 

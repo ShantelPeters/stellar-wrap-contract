@@ -693,8 +693,15 @@ impl StellarWrapContract {
             .persistent()
             .extend_ttl(&wrap_key, ttl_one_year, ttl_one_year);
 
-        e.events()
-            .publish((symbol_short!("update"), user, period), new_archetype);
+        e.events().publish(
+            (
+                e.current_contract_address(),
+                symbol_short!("update"),
+                user,
+                period,
+            ),
+            new_archetype,
+        );
     }
 
     /// Admin-only revocation for incorrect or fraudulent records.

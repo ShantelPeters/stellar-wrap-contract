@@ -263,6 +263,7 @@ All contract events include the **contract address as the first topic** to suppo
 | Event | Topics | Data | Emitted by |
 |---|---|---|---|
 | **mint** | `(contract, "mint", user: Address, period: u64)` | `archetype: Symbol` | `mint_wrap`, `claim_wrap` |
+| **update** | `(contract, "update", user: Address, period: u64)` | `archetype: Symbol` | `update_wrap` |
 | **revoke** | `(contract, "revoke", user: Address, period: u64)` | `true: bool` | `revoke_wrap` |
 | **admin updated** | `(contract, "admin", "updated")` | `(old_admin: Address, new_admin: Address)` | `update_admin` |
 | **merkle root** | `(contract, "merkle", "root", period: u64)` | `root: BytesN<32>` | `set_merkle_root` |
