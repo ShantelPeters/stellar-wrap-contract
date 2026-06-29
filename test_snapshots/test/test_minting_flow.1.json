@@ -583,6 +583,14 @@
                 },
                 {
                   "key": {
+                    "symbol": "image_uri"
+                  },
+                  "val": {
+                    "string": ""
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "period"
                   },
                   "val": {
