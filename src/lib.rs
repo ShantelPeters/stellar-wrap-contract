@@ -51,7 +51,6 @@ pub enum ContractError {
     StorageDepositExceeded = 12,
 }
 
-
 #[contract]
 pub struct StellarWrapContract;
 
@@ -100,7 +99,11 @@ impl StellarWrapContract {
         e.storage().instance().set(&DataKey::Admin, &new_admin);
 
         e.events().publish(
-            (symbol_short!("admin"), symbol_short!("updated")),
+            (
+                e.current_contract_address(),
+                symbol_short!("admin"),
+                symbol_short!("updated"),
+            ),
             (current_admin, new_admin),
         );
     }
@@ -162,7 +165,6 @@ impl StellarWrapContract {
                 .set(&DataKey::StorageDepositUsed(user.clone()), &new_user);
         }
     }
-
 
     /// Mint a soulbound wrap record for a user.
     ///
@@ -247,9 +249,7 @@ impl StellarWrapContract {
         // `persist_wrap_record` would add/update.
         Self::charge_storage_or_panic(&e, &user, 3);
 
-
         let record = WrapRecord {
-
             timestamp: e.ledger().timestamp(),
             data_hash,
             archetype: archetype.clone(),
@@ -278,8 +278,15 @@ impl StellarWrapContract {
             .instance()
             .set(&DataKey::MerkleRoot(period), &root);
 
-        e.events()
-            .publish((symbol_short!("merkle"), symbol_short!("root"), period), root);
+        e.events().publish(
+            (
+                e.current_contract_address(),
+                symbol_short!("merkle"),
+                symbol_short!("root"),
+                period,
+            ),
+            root,
+        );
     }
 
     /// Claim a wrap using a merkle proof against a published root for `period`.
@@ -294,7 +301,6 @@ impl StellarWrapContract {
         data_hash: BytesN<32>,
         proof: soroban_sdk::Vec<BytesN<32>>,
     ) {
-
         user.require_auth();
 
         let guard_key = DataKey::MintGuard(user.clone());
@@ -353,7 +359,6 @@ impl StellarWrapContract {
 
         Self::persist_wrap_record(&e, user.clone(), period, record, archetype);
 
-
         e.storage().temporary().remove(&guard_key);
     }
 
@@ -384,7 +389,11 @@ impl StellarWrapContract {
             .set(&DataKey::SchemaVersion, &to_version);
 
         e.events().publish(
-            (symbol_short!("schema"), symbol_short!("migrat")),
+            (
+                e.current_contract_address(),
+                symbol_short!("schema"),
+                symbol_short!("migrat"),
+            ),
             (from_version, to_version),
         );
 
@@ -417,8 +426,10 @@ impl StellarWrapContract {
             ttl_one_year,
         );
 
-        e.events()
-            .publish((symbol_short!("opt_out"), user), true);
+        e.events().publish(
+            (e.current_contract_address(), symbol_short!("opt_out"), user),
+            true,
+        );
     }
 
     /// Re-enable public visibility of wrap records for `user`.
@@ -429,10 +440,14 @@ impl StellarWrapContract {
             .get::<_, Address>(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
 
-        e.storage().persistent().remove(&DataKey::UserOptOut(user.clone()));
+        e.storage()
+            .persistent()
+            .remove(&DataKey::UserOptOut(user.clone()));
 
-        e.events()
-            .publish((symbol_short!("opt_in"), user), true);
+        e.events().publish(
+            (e.current_contract_address(), symbol_short!("opt_in"), user),
+            true,
+        );
     }
 
     /// Return whether `user` has opted out of public wrap visibility.
@@ -469,7 +484,12 @@ impl StellarWrapContract {
             .persistent()
             .extend_ttl(&wrap_key, ttl_one_year, ttl_one_year);
         e.events().publish(
-            (symbol_short!("migrat"), user.clone(), period),
+            (
+                e.current_contract_address(),
+                symbol_short!("migrat"),
+                user.clone(),
+                period,
+            ),
             v1.archetype,
         );
         migrated
@@ -552,8 +572,15 @@ impl StellarWrapContract {
             .persistent()
             .extend_ttl(&streak_key, ttl_one_year, ttl_one_year);
 
-        e.events()
-            .publish((symbol_short!("mint"), user, period), archetype);
+        e.events().publish(
+            (
+                e.current_contract_address(),
+                symbol_short!("mint"),
+                user,
+                period,
+            ),
+            archetype,
+        );
     }
 
     fn load_wrap_record(e: &Env, user: &Address, period: u64) -> Option<WrapRecord> {
@@ -696,8 +723,15 @@ impl StellarWrapContract {
 
         // Streak is not recalculated on revoke to avoid expensive on-chain scans.
         // This means streak may temporarily remain stale after a removal.
-        e.events()
-            .publish((symbol_short!("revoke"), user, period), true);
+        e.events().publish(
+            (
+                e.current_contract_address(),
+                symbol_short!("revoke"),
+                user,
+                period,
+            ),
+            true,
+        );
     }
 
     // --- Read Functions ---

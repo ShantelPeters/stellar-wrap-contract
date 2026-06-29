@@ -246,3 +246,34 @@ The mint reentrancy guard uses Soroban temporary storage, not persistent storage
 | 3 | `Unauthorized` |
 | 4 | `WrapAlreadyExists` |
 | 5 | `InvalidSignature` |
+
+---
+
+## 📡 Event Schemas
+
+All contract events include the **contract address as the first topic** to support multi-contract indexing. Topics are ordered consistently across all events.
+
+### Encoding
+
+- Topics: `(contract_address: Address, event_name: Symbol, ...)`
+- Data: event-specific payload (see table below)
+
+### Event Reference
+
+| Event | Topics | Data | Emitted by |
+|---|---|---|---|
+| **mint** | `(contract, "mint", user: Address, period: u64)` | `archetype: Symbol` | `mint_wrap`, `claim_wrap` |
+| **revoke** | `(contract, "revoke", user: Address, period: u64)` | `true: bool` | `revoke_wrap` |
+| **admin updated** | `(contract, "admin", "updated")` | `(old_admin: Address, new_admin: Address)` | `update_admin` |
+| **merkle root** | `(contract, "merkle", "root", period: u64)` | `root: BytesN<32>` | `set_merkle_root` |
+| **schema migrate** | `(contract, "schema", "migrat")` | `(from: u32, to: u32)` | `migrate` |
+| **lazy record migrate** | `(contract, "migrat", user: Address, period: u64)` | `archetype: Symbol` | `get_wrap` (on first read of a v1 record post-migration) |
+| **opt out** | `(contract, "opt_out", user: Address)` | `true: bool` | `opt_out` |
+| **opt in** | `(contract, "opt_in", user: Address)` | `true: bool` | `opt_in` |
+
+### Indexer Tips
+
+- **Filter by contract address** (topic 0) to isolate events from this specific contract deployment when multiple contracts share an indexer.
+- **Filter by event name** (topic 1) to handle each event type separately.
+- The `mint` event is emitted by both `mint_wrap` (admin signature flow) and `claim_wrap` (merkle proof flow) — they share identical topic and data layout.
+- `lazy record migrate` events fire on the first `get_wrap` call after a `v1→v2` schema migration; expect them during the migration window only.
