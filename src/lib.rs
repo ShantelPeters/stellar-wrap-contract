@@ -106,7 +106,7 @@ impl StellarWrapContract {
     /// This is a lightweight DoS prevention mechanism: without it, an attacker can
     /// spam unique `(user, period)` keys to exhaust the contract's storage.
     ///
-    /// The contract uses “deposit units” rather than trying to measure real
+    /// The contract uses "deposit units" rather than trying to measure real
     /// Soroban storage cost.
     fn charge_storage_or_panic(e: &Env, user: &Address, amount: u64) {
         let total_budget: u64 = e
@@ -264,9 +264,7 @@ impl StellarWrapContract {
         // `persist_wrap_record` would add/update.
         Self::charge_storage_or_panic(&e, &user, 3);
 
-
         let record = WrapRecord {
-
             timestamp: e.ledger().timestamp(),
             data_hash,
             archetype: archetype.clone(),
@@ -278,6 +276,7 @@ impl StellarWrapContract {
 
         e.storage().temporary().remove(&guard_key);
     }
+
     /// Publish a merkle root for batch wrap claims in a given period (admin-only).
     ///
     /// Off-chain, build a binary merkle tree over leaves defined as:
@@ -311,7 +310,6 @@ impl StellarWrapContract {
         data_hash: BytesN<32>,
         proof: soroban_sdk::Vec<BytesN<32>>,
     ) {
-
         user.require_auth();
 
         let guard_key = DataKey::MintGuard(user.clone());
@@ -369,7 +367,6 @@ impl StellarWrapContract {
             .extend_ttl(&claim_key, ttl_one_year, ttl_one_year);
 
         Self::persist_wrap_record(&e, user.clone(), period, record, archetype);
-
 
         e.storage().temporary().remove(&guard_key);
     }
@@ -568,6 +565,19 @@ impl StellarWrapContract {
         e.storage()
             .persistent()
             .extend_ttl(&streak_key, ttl_one_year, ttl_one_year);
+
+        // Update global counters
+        let total: u64 = e
+            .storage()
+            .instance()
+            .get(&DataKey::TotalMints)
+            .unwrap_or(0);
+        e.storage()
+            .instance()
+            .set(&DataKey::TotalMints, &(total + 1));
+        e.storage()
+            .instance()
+            .set(&DataKey::LastMintTimestamp, &e.ledger().timestamp());
 
         e.events()
             .publish((symbol_short!("mint"), user, period), archetype);
@@ -786,8 +796,20 @@ impl StellarWrapContract {
                 .set(&count_key, &(current_count - 1));
         }
 
+        let total: u64 = e
+            .storage()
+            .instance()
+            .get(&DataKey::TotalMints)
+            .unwrap_or(0);
+        if total > 0 {
+            e.storage()
+                .instance()
+                .set(&DataKey::TotalMints, &(total - 1));
+        }
+
         // Streak is not recalculated on revoke to avoid expensive on-chain scans.
         // This means streak may temporarily remain stale after a removal.
+
         e.events()
             .publish((symbol_short!("revoke"), user, period), true);
     }
@@ -951,6 +973,48 @@ impl StellarWrapContract {
     /// Return the current admin address, or `None` if the contract is not yet initialized.
     pub fn get_admin(e: Env) -> Option<Address> {
         e.storage().instance().get(&DataKey::Admin)
+    }
+
+    /// Return aggregate health metrics for admin monitoring and frontend dashboards.
+    ///
+    /// All fields are read from instance storage — no auth required.
+    ///
+    /// # Returns
+    /// A [`ContractStats`] struct containing:
+    /// - `total_mints`: current count of active (non-revoked) wraps across all users.
+    /// - `admin`: the current admin address.
+    /// - `is_initialized`: whether [`initialize`] has been called.
+    /// - `last_mint_timestamp`: ledger timestamp of the most recent successful mint, or `None`.
+    /// - `schema_version`: storage schema version set at initialization.
+    pub fn get_contract_stats(e: Env) -> ContractStats {
+        let admin: Option<Address> = e.storage().instance().get(&DataKey::Admin);
+        let is_initialized = admin.is_some();
+        let total_mints: u64 = e
+            .storage()
+            .instance()
+            .get(&DataKey::TotalMints)
+            .unwrap_or(0);
+        let last_mint_timestamp: Option<u64> =
+            e.storage().instance().get(&DataKey::LastMintTimestamp);
+        let schema_version: u32 = e
+            .storage()
+            .instance()
+            .get(&DataKey::SchemaVersion)
+            .unwrap_or(0);
+
+        ContractStats {
+            total_mints,
+            admin,
+            is_initialized,
+            last_mint_timestamp,
+            schema_version,
+        }
+    }
+
+    /// Return the ledger timestamp of the most recent successful mint, or `None` if no mint
+    /// has occurred yet.
+    pub fn get_last_mint_timestamp(e: Env) -> Option<u64> {
+        e.storage().instance().get(&DataKey::LastMintTimestamp)
     }
 
     /// Return the human-readable name of this token registry.

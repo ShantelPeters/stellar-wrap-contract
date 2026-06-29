@@ -273,12 +273,36 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "LastMintTimestamp"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 0
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "SchemaVersion"
                             }
                           ]
                         },
                         "val": {
                           "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "TotalMints"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 1
                         }
                       }
                     ]

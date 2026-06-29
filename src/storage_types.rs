@@ -2,6 +2,16 @@ use soroban_sdk::{contracttype, Address, BytesN, String, Symbol};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractStats {
+    pub total_mints: u64,
+    pub admin: Option<Address>,
+    pub is_initialized: bool,
+    pub last_mint_timestamp: Option<u64>,
+    pub schema_version: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractInfo {
     pub name: String,
     pub version: String,
@@ -91,6 +101,12 @@ pub enum DataKey {
     LatestPeriod(Address),
     /// Temporary, invocation-scoped reentrancy guard for mint flow
     MintGuard(Address),
+    /// Global counter of currently active (non-revoked) minted wraps
+    TotalMints,
+    /// Ledger timestamp of the most recent successful mint
+    LastMintTimestamp,
+    /// Schema version set at initialization; bumped on breaking storage migrations
+    SchemaVersion,
     /// Merkle root for batch claims per period
     MerkleRoot(u64),
     /// Tracks whether a user has claimed via merkle for a period

@@ -5,13 +5,12 @@ use super::*;
 use ed25519_dalek::{Signer, SigningKey};
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, Ledger as _},
     xdr::ToXdr,
     Address, Bytes, BytesN, Env, IntoVal, String, Symbol, TryIntoVal,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use crate::storage_types::{DataKey, WrapRecord, WrapRecordOption};
 
 fn sign_payload(
     env: &Env,
@@ -103,7 +102,6 @@ fn test_mint_emits_event() {
     let last_event = events.last().expect("No events found");
     let (_, topics, data) = last_event;
 
-    // Convert Vals to concrete types for comparison
     let event_topic: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
     let event_user: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
     let event_period: u64 = topics.get(2).unwrap().try_into_val(&env).unwrap();
@@ -1752,4 +1750,3 @@ fn test_update_wrap_zero_hash_rejected() {
     client.initialize(&admin, &admin_pubkey);
     env.mock_all_auths();
 
-}
