@@ -122,6 +122,7 @@ impl StellarWrapContract {
     /// - `period`: A `u64` identifier for the wrap period (e.g. `202412` for December 2024).
     /// - `archetype`: A short `Symbol` describing the user's persona (e.g. `"builder"`).
     /// - `data_hash`: SHA-256 hash of the off-chain JSON data. Must not be all-zero bytes.
+    /// - `expires_at`: Optional expiry ledger sequence. `0` means no expiry (permanent).
     /// - `signature`: 64-byte Ed25519 signature from the admin over the canonical payload.
     /// - `delegate`: When set, the delegate must authorize and their registered pubkey is used
     ///   for signature verification instead of the admin key.
@@ -136,6 +137,7 @@ impl StellarWrapContract {
     /// # Panics
     /// - [`ContractError::NotInitialized`] if the contract has not been initialized.
     /// - [`ContractError::InvalidDataHash`] if `data_hash` is all-zero bytes.
+    /// - [`ContractError::InvalidExpiry`] if `expires_at` is set but not in the future.
     /// - [`ContractError::InvalidSignature`] if the Ed25519 signature is invalid.
     /// - [`ContractError::WrapAlreadyExists`] if a wrap for `(user, period)` already exists.
     /// - [`ContractError::Unauthorized`] if `delegate` is set but not registered.
@@ -146,6 +148,7 @@ impl StellarWrapContract {
         period: WrapPeriod,
         archetype: Symbol,
         data_hash: BytesN<32>,
+        expires_at: u64,
         signature: BytesN<64>,
     ) {
         user.require_auth();
@@ -208,7 +211,6 @@ impl StellarWrapContract {
             archetype: archetype.clone(),
             period,
             image_uri: String::from_str(&e, ""),
-            metadata,
         };
 
         Self::persist_wrap_record(&e, symbol_short!("default"), user.clone(), period, record, archetype);
@@ -376,23 +378,6 @@ impl StellarWrapContract {
             archetype: archetype.clone(),
             period,
             image_uri: String::from_str(&e, ""),
-            metadata,
-        };
-
-    }
-
-    fn decrement_archetype_count(e: &Env, archetype: &Symbol) {
-        let arch_key = DataKey::ArchetypeCount(archetype.clone());
-        let count: u64 = e.storage().persistent().get(&arch_key).unwrap_or(0);
-        if count > 0 {
-            let ttl_one_year = 17280 * 365;
-            e.storage()
-                .persistent()
-                .set(&arch_key, &(count - 1));
-            e.storage()
-                .persistent()
-                .extend_ttl(&arch_key, ttl_one_year, ttl_one_year);
-        }
     }
 
     fn load_wrap_record(e: &Env, user: &Address, period: u64) -> Option<WrapRecord> {
@@ -405,10 +390,12 @@ impl StellarWrapContract {
                 .storage()
                 .persistent()
                 .get::<_, WrapRecordV1>(&wrap_key)
-                .map(|v1| Self::v1_to_v3(e, &v1));
+        }
+        if let Some(v2) = e.storage().persistent().get::<_, WrapRecordV2>(&wrap_key) {
+            return Some(Self::v2_to_v3(&v2));
         }
 
-        e.storage().persistent().get::<_, WrapRecord>(&wrap_key)
+        None
     }
 
     fn user_is_opted_out(e: &Env, user: &Address) -> bool {
@@ -543,162 +530,46 @@ impl StellarWrapContract {
             archetype: new_archetype.clone(),
             period,
             image_uri: existing.image_uri,
-            metadata: new_metadata,
-        };
-
-        e.storage()
-            .persistent()
-            .extend_ttl(&wrap_key, DEFAULT_TTL_LEDGERS, DEFAULT_TTL_LEDGERS);
-
-        e.events().publish(
-            (symbol_short!("v1"), symbol_short!("update"), user, period),
-            new_archetype,
-        );
-    }
-
-    /// Store an auxiliary data hash for tiered verification (admin-only).
-    ///
-    /// A wrap's primary `data_hash` (set at mint) covers one view of the off-chain data.
-    /// Some integrations need more than one hash per period — e.g. a `"summary"` hash over
-    /// the top-line stats and a `"detail"` hash over the full activity log. Rather than
-    /// minting a second wrap, the admin records each extra hash here under a `hash_type`
-    /// label. Auxiliary hashes are stored in their own `DataKey::AuxHash` entries, so the
-    /// `WrapRecord` layout and the `mint_wrap` signing payload are unchanged.
-    ///
-    /// Calling this again with the same `(user, period, hash_type)` overwrites the prior
-    /// value, allowing the admin to correct a hash.
-    ///
-    /// # Parameters
-    /// - `user`: The address whose wrap the aux hash belongs to.
-    /// - `period`: The period identifier of the parent wrap.
-    /// - `hash_type`: A short `Symbol` naming the tier (e.g. `"summary"`, `"detail"`).
-    /// - `hash`: SHA-256 hash for this tier. Must not be all-zero bytes.
-    ///
-    /// # Authorization
-    /// Requires authorization from the **admin**.
-    ///
-    /// # Panics
-    /// - [`ContractError::NotInitialized`] if the contract has not been initialized.
-    /// - [`ContractError::Unauthorized`] if the caller is not the admin.
-    /// - [`ContractError::InvalidDataHash`] if `hash` is all-zero bytes.
-    /// - [`ContractError::WrapNotFound`] if no wrap exists for `(user, period)`.
-    pub fn set_aux_hash(e: Env, user: Address, period: u64, hash_type: Symbol, hash: BytesN<32>) {
-        let admin: Address = e
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
-        admin.require_auth();
-
-        if hash == BytesN::from_array(&e, &[0u8; 32]) {
-            panic_with_error!(e, ContractError::InvalidDataHash);
-        }
-
-        // The aux hash supplements an existing wrap — refuse to create orphans.
-        let wrap_key = DataKey::Wrap(user.clone(), period);
-        if !e.storage().persistent().has(&wrap_key) {
-            panic_with_error!(e, ContractError::WrapNotFound);
-        }
-
-        let aux_key = DataKey::AuxHash(user.clone(), period, hash_type.clone());
-        let ttl_one_year = 17280 * 365;
-        e.storage().persistent().set(&aux_key, &hash);
-        e.storage()
-            .persistent()
-            .extend_ttl(&aux_key, ttl_one_year, ttl_one_year);
-
-        e.events()
-            .publish((symbol_short!("auxhash"), user, period), hash_type);
-    }
-
-    /// Retrieve an auxiliary data hash previously stored via [`set_aux_hash`].
-    ///
-    /// # Parameters
-    /// - `user`: The address whose aux hash is requested.
-    /// - `period`: The period identifier of the parent wrap.
-    /// - `hash_type`: The tier label used when the hash was stored.
-    ///
-    /// # Returns
-    /// `Some(BytesN<32>)` if a hash was stored for that `(user, period, hash_type)`, else `None`.
-    pub fn get_aux_hash(
-        e: Env,
-        user: Address,
-        period: u64,
-        hash_type: Symbol,
-    ) -> Option<BytesN<32>> {
-        e.storage()
-            .persistent()
-            .get(&DataKey::AuxHash(user, period, hash_type))
-    }
-
-    pub fn update_campaign_wrap(
-        e: Env,
-        campaign: Symbol,
-        user: Address,
-        period: WrapPeriod,
-        new_data_hash: BytesN<32>,
-        new_archetype: Symbol,
-        signature: BytesN<64>,
-        new_metadata: Option<String>,
-    ) {
-        Self::validate_period(&e, period);
-        let admin: Address = e
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
-        admin.require_auth();
-
-        let default_campaign = symbol_short!("default");
-        if campaign == default_campaign {
-            return Self::update_wrap(e, user, period, new_data_hash, new_archetype, signature, new_metadata);
-        }
-
-        let admin_pubkey: BytesN<32> = e
-            .storage()
-            .instance()
-            .get(&DataKey::AdminPubKey)
-            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
-
-        if new_data_hash == BytesN::from_array(&e, &[0u8; 32]) {
-            panic_with_error!(e, ContractError::InvalidDataHash);
-        }
-
-        // Payload: contract_id ‖ campaign ‖ user ‖ period ‖ new_archetype ‖ new_data_hash ‖ new_metadata
-        let mut payload = Bytes::new(&e);
-        payload.append(&e.current_contract_address().to_xdr(&e));
-        payload.append(&campaign.clone().to_xdr(&e));
-        payload.append(&user.clone().to_xdr(&e));
-        payload.append(&period.to_xdr(&e));
-        payload.append(&new_archetype.clone().to_xdr(&e));
-        payload.append(&new_data_hash.clone().to_xdr(&e));
-        payload.append(&new_metadata.clone().to_xdr(&e));
-        e.crypto()
-            .ed25519_verify(&admin_pubkey, &payload, &signature);
-
-        let wrap_key = DataKey::CampaignWrap(campaign.clone(), user.clone(), period);
-        let existing: WrapRecord = Self::load_campaign_wrap_record(&e, &campaign, &user, period)
-            .unwrap_or_else(|| panic_with_error!(e, ContractError::WrapNotFound));
-
-        let updated = WrapRecord {
-            timestamp: existing.timestamp, // preserve original timestamp
-            data_hash: new_data_hash,
-            archetype: new_archetype.clone(),
-            period,
-            image_uri: existing.image_uri,
-            metadata: new_metadata,
-        };
-
-        let ttl_one_year = 17280 * 365;
-        e.storage().persistent().set(&wrap_key, &updated);
-        e.storage()
-            .persistent()
-            .extend_ttl(&wrap_key, ttl_one_year, ttl_one_year);
 
         e.events().publish(
             (symbol_short!("campaign"), symbol_short!("update"), campaign, user, period),
             new_archetype,
         );
+    }
+
+    /// Remove a wrap record that has passed its expiry ledger.
+    ///
+    /// Anyone may call this to reclaim storage for time-limited campaign wraps.
+    /// Records with `expires_at == 0` (no expiry) cannot be cleaned up.
+    ///
+    /// # Parameters
+    /// - `user`: The address whose expired wrap should be removed.
+    /// - `period`: The period identifier of the wrap to clean up.
+    ///
+    /// # Panics
+    /// - [`ContractError::WrapNotFound`] if no wrap exists for `(user, period)`.
+    /// - [`ContractError::WrapNotExpired`] if the record has no expiry or is not yet expired.
+    pub fn cleanup_expired_wrap(e: Env, user: Address, period: u64) {
+        let record = Self::load_wrap_record(&e, &user, period)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::WrapNotFound));
+
+        if record.expires_at == 0 || (e.ledger().sequence() as u64) < record.expires_at {
+            panic_with_error!(e, ContractError::WrapNotExpired);
+        }
+
+        let wrap_key = DataKey::Wrap(user.clone(), period);
+        e.storage().persistent().remove(&wrap_key);
+
+        let count_key = DataKey::WrapCount(user.clone());
+        let current_count: u32 = e.storage().persistent().get(&count_key).unwrap_or(0);
+        if current_count > 0 {
+            e.storage()
+                .persistent()
+                .set(&count_key, &(current_count - 1));
+        }
+
+        e.events()
+            .publish((symbol_short!("cleanup"), user, period), true);
     }
 
     /// Admin-only revocation for incorrect or fraudulent records.
@@ -911,6 +782,21 @@ impl StellarWrapContract {
             .unwrap_or(0) as i128
     }
 
+    /// Compute the SHA-256 hash of raw wrap data bytes.
+    ///
+    /// This is the canonical hashing scheme used by `mint_wrap` and `verify_data`:
+    /// `SHA-256(raw_json_bytes)` with no envelope, prefix, or encoding wrapper.
+    ///
+    /// # Parameters
+    /// - `data`: Raw bytes (typically UTF-8 JSON) to hash.
+    ///
+    /// # Returns
+    /// The 32-byte SHA-256 digest.
+    pub fn compute_data_hash(e: Env, data: Bytes) -> BytesN<32> {
+        let hash = e.crypto().sha256(&data);
+        BytesN::from_array(&e, &hash.to_array())
+    }
+
     /// Verify that the SHA-256 hash of `data` matches the `data_hash` stored in a wrap record.
     ///
     /// Useful for off-chain integrity checks: hash the original JSON off-chain, then call this
@@ -925,10 +811,7 @@ impl StellarWrapContract {
     /// `true` if the hash matches, `false` if it does not or if no record exists.
     pub fn verify_data(e: Env, user: Address, period: WrapPeriod, data: Bytes) -> bool {
         match Self::load_wrap_record(&e, &user, period) {
-            Some(record) => {
-                let computed_hash = e.crypto().sha256(&data);
-                record.data_hash == BytesN::from_array(&e, &computed_hash.to_array())
-            }
+            Some(record) => record.data_hash == Self::compute_data_hash(e, data),
             None => false,
         }
     }
@@ -972,21 +855,14 @@ impl StellarWrapContract {
     /// Soroban persistent storage entries expire after their TTL lapses. This function lets
     /// anyone renew a user's wrap records so they remain accessible indefinitely.
     ///
+    /// When a wrap has `expires_at` set, TTL extensions are capped so storage does not
+    /// outlive the expiry ledger.
+    ///
     /// # Parameters
     /// - `user`: The address whose storage entries will be extended.
     /// - `period`: The specific wrap period whose record TTL will be extended.
     pub fn extend_ttl(e: Env, user: Address, period: WrapPeriod) {
         let wrap_key = DataKey::Wrap(user.clone(), period);
-        }
-
-        let count_key = DataKey::WrapCount(user.clone());
-        if e.storage().persistent().has(&count_key) {
-            e.storage()
-                .persistent()
-        }
-
-        let latest_key = DataKey::LatestPeriod(user.clone());
-        if e.storage().persistent().has(&latest_key) {
     }
 
     /// Return the global number of wraps minted with `archetype`.

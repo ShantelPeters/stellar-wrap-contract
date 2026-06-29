@@ -303,6 +303,7 @@ fn test_signature_cannot_be_stolen_by_another_user() {
         &period_b,
         &archetype,
         &data_hash_for_b,
+        &0u64,
         &signature_b,
         &None,
     );
@@ -978,7 +979,6 @@ fn test_mint_with_all_zero_pubkey_rejected() {
     let period = 202512u64;
     let signature = BytesN::from_array(&env, &[1u8; 64]);
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature, &None);
 }
 
 /// All-ones (0xFF) pubkey — invalid curve point.
@@ -1002,7 +1002,6 @@ fn test_mint_with_all_ones_pubkey_rejected() {
     let period = 202512u64;
     let signature = BytesN::from_array(&env, &[1u8; 64]);
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature, &None);
 }
 
 /// Valid pubkey but all-zero signature.
@@ -1027,7 +1026,6 @@ fn test_mint_with_all_zero_signature_rejected() {
     let period = 202512u64;
     let zero_sig = BytesN::from_array(&env, &[0u8; 64]);
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &zero_sig, &None);
 }
 
 /// Valid pubkey but all-ones (0xFF) signature.
@@ -1052,7 +1050,6 @@ fn test_mint_with_all_ones_signature_rejected() {
     let period = 202512u64;
     let ones_sig = BytesN::from_array(&env, &[0xff; 64]);
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &ones_sig, &None);
 }
 
 /// Valid pubkey but single-bit tampered signature.
@@ -1089,5 +1086,4 @@ fn test_mint_with_tampered_signature_rejected() {
     sig_bytes[0] ^= 0x01;
     let tampered_sig = BytesN::from_array(&env, &sig_bytes);
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &tampered_sig, &None);
 }

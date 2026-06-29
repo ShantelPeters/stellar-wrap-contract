@@ -30,9 +30,6 @@ pub struct WrapRecordV1 {
     pub period: u64,
 }
 
-/// Period encoded as YYYYMM (e.g., 202512 = December 2025)
-pub type WrapPeriod = u64;
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WrapRecordV2 {
@@ -51,53 +48,6 @@ pub struct WrapRecord {
     pub archetype: Symbol,
     pub period: WrapPeriod,
     pub image_uri: String,
-    /// Optional on-chain metadata/notes (schema v3+)
-    pub metadata: Option<String>,
-}
-
-impl fmt::Display for WrapRecord {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let hash = self.data_hash.to_array();
-
-        write!(
-            f,
-            "WrapRecord {{ period: {}, archetype: {:?}, timestamp: {}, data_hash: ",
-            self.period, self.archetype, self.timestamp
-        )?;
-
-        for byte in hash.iter().take(HASH_PREVIEW_BYTES) {
-            write!(f, "{byte:02x}")?;
-        }
-
-        write!(f, "..., image_uri: {:?} }}", self.image_uri)
-    }
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum WrapRecordOption {
-    Some(WrapRecord),
-    None,
-}
-
-impl WrapRecordOption {
-    pub fn is_some(&self) -> bool {
-        matches!(self, Self::Some(_))
-    }
-
-    pub fn is_none(&self) -> bool {
-        matches!(self, Self::None)
-    }
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct WrapComparison {
-    pub user_a_wrap: WrapRecordOption,
-    pub user_b_wrap: WrapRecordOption,
-    pub both_have_wrap: bool,
-    pub same_archetype: bool,
-    pub period: u64,
 }
 
 #[contracttype]
