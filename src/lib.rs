@@ -49,6 +49,8 @@ pub enum ContractError {
     InvalidMigration = 11,
     /// Storage deposit/budget exceeded (code 12)
     StorageDepositExceeded = 12,
+    /// The admin signature has expired (expiry_ledger < current ledger sequence). (code 13)
+    SignatureExpired = 13,
 }
 
 
@@ -166,9 +168,11 @@ impl StellarWrapContract {
 
     /// Mint a soulbound wrap record for a user.
     ///
-    /// The backend generates a payload of `(contract_id ‖ user ‖ period ‖ archetype ‖ data_hash)`,
+    /// The backend generates a payload of
+    /// `(contract_id ‖ user ‖ period ‖ archetype ‖ data_hash ‖ expiry_ledger)`,
     /// signs it with the admin Ed25519 private key, and delivers the signature to the user.
-    /// The user then calls this function to claim their on-chain wrap record.
+    /// The user then calls this function to claim their on-chain wrap record before
+    /// `expiry_ledger` is reached.
     ///
     /// **Invariant:** The admin must issue at most one signature per `(user, period)` pair.
     /// Only one archetype can ever be stored for a given period; a second valid signature for
@@ -180,6 +184,8 @@ impl StellarWrapContract {
     /// - `period`: A `u64` identifier for the wrap period (e.g. `202412` for December 2024).
     /// - `archetype`: A short `Symbol` describing the user's persona (e.g. `"builder"`).
     /// - `data_hash`: SHA-256 hash of the off-chain JSON data. Must not be all-zero bytes.
+    /// - `expiry_ledger`: The ledger sequence number after which this signature is invalid.
+    ///   The current ledger sequence must be ≤ `expiry_ledger` for the mint to succeed.
     /// - `signature`: 64-byte Ed25519 signature from the admin over the canonical payload.
     ///
     /// # Returns
@@ -191,6 +197,7 @@ impl StellarWrapContract {
     /// # Panics
     /// - [`ContractError::NotInitialized`] if the contract has not been initialized.
     /// - [`ContractError::InvalidDataHash`] if `data_hash` is all-zero bytes.
+    /// - [`ContractError::SignatureExpired`] if the current ledger sequence exceeds `expiry_ledger`.
     /// - [`ContractError::InvalidSignature`] if the Ed25519 signature is invalid.
     /// - [`ContractError::WrapAlreadyExists`] if a wrap for `(user, period)` already exists.
     pub fn mint_wrap(
@@ -199,6 +206,7 @@ impl StellarWrapContract {
         period: u64,
         archetype: Symbol,
         data_hash: BytesN<32>,
+        expiry_ledger: u32,
         signature: BytesN<64>,
     ) {
         // 1. Security: Ensure the user actually signed this transaction
@@ -224,19 +232,25 @@ impl StellarWrapContract {
             panic_with_error!(e, ContractError::InvalidDataHash);
         }
 
-        // 4. Reconstruct payload: contract_id ‖ user ‖ period ‖ archetype ‖ data_hash
+        // 4. Check signature expiry before verifying it
+        if e.ledger().sequence() > expiry_ledger {
+            panic_with_error!(e, ContractError::SignatureExpired);
+        }
+
+        // 5. Reconstruct payload: contract_id ‖ user ‖ period ‖ archetype ‖ data_hash ‖ expiry_ledger
         let mut payload = Bytes::new(&e);
         payload.append(&e.current_contract_address().to_xdr(&e));
         payload.append(&user.clone().to_xdr(&e));
         payload.append(&period.to_xdr(&e));
         payload.append(&archetype.clone().to_xdr(&e));
         payload.append(&data_hash.clone().to_xdr(&e));
+        payload.append(&expiry_ledger.to_xdr(&e));
 
-        // 5. Verify Admin Signature
+        // 6. Verify Admin Signature
         e.crypto()
             .ed25519_verify(&admin_pubkey, &payload, &signature);
 
-        // 6. Check Duplicates & Store Record
+        // 7. Check Duplicates & Store Record
         let wrap_key = DataKey::Wrap(user.clone(), period);
         if e.storage().persistent().has(&wrap_key) {
             panic_with_error!(e, ContractError::WrapAlreadyExists);

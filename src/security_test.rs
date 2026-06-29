@@ -14,6 +14,9 @@ use soroban_sdk::{
     Address, Bytes, BytesN, Env, Symbol,
 };
 
+/// Expiry far in the future so these security tests never trip the expiry check.
+const NEVER_EXPIRES: u32 = u32::MAX;
+
 /// Helper function to sign payloads for testing
 fn sign_payload(
     env: &Env,
@@ -30,6 +33,7 @@ fn sign_payload(
     payload.append(&period.to_xdr(env));
     payload.append(&archetype.clone().to_xdr(env));
     payload.append(&data_hash.clone().to_xdr(env));
+    payload.append(&NEVER_EXPIRES.to_xdr(env));
 
     let mut out = [0u8; 512];
     let len = payload.len() as usize;
@@ -71,7 +75,7 @@ fn test_replay_attack_same_period_fails() {
     );
 
     // First mint - should succeed
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &signature);
 
     // Verify the wrap was created
     let wrap = client.get_wrap(&user, &period);
@@ -79,7 +83,7 @@ fn test_replay_attack_same_period_fails() {
 
     // Replay attack: Try to mint again with the exact same parameters
     // This should PANIC with WrapAlreadyExists error (#4)
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &signature);
 }
 
 /// Test 2: Replay Attack with Different Hash (but same period)
@@ -115,7 +119,7 @@ fn test_replay_attack_different_hash_same_period_fails() {
     );
 
     // First mint - should succeed
-    client.mint_wrap(&user, &period, &archetype, &data_hash_1, &signature_1);
+    client.mint_wrap(&user, &period, &archetype, &data_hash_1, &NEVER_EXPIRES, &signature_1);
 
     let signature_2 = sign_payload(
         &env,
@@ -129,7 +133,7 @@ fn test_replay_attack_different_hash_same_period_fails() {
 
     // Try to mint again for the same period with a different hash
     // This should still fail - period is already used
-    client.mint_wrap(&user, &period, &archetype, &data_hash_2, &signature_2);
+    client.mint_wrap(&user, &period, &archetype, &data_hash_2, &NEVER_EXPIRES, &signature_2);
 }
 
 /// Test 3: Multiple Valid Periods Work Correctly
@@ -186,9 +190,9 @@ fn test_multiple_periods_for_same_user_success() {
     );
 
     // All three should succeed
-    client.mint_wrap(&user, &period_1, &archetype, &data_hash_1, &signature_1);
-    client.mint_wrap(&user, &period_2, &archetype, &data_hash_2, &signature_2);
-    client.mint_wrap(&user, &period_3, &archetype, &data_hash_3, &signature_3);
+    client.mint_wrap(&user, &period_1, &archetype, &data_hash_1, &NEVER_EXPIRES, &signature_1);
+    client.mint_wrap(&user, &period_2, &archetype, &data_hash_2, &NEVER_EXPIRES, &signature_2);
+    client.mint_wrap(&user, &period_3, &archetype, &data_hash_3, &NEVER_EXPIRES, &signature_3);
 
     // Verify all three wraps exist
     assert!(client.get_wrap(&user, &period_1).is_some());
@@ -233,7 +237,7 @@ fn test_signature_cannot_be_stolen_by_another_user() {
     );
 
     // User A mints successfully
-    client.mint_wrap(&user_a, &period, &archetype, &data_hash_for_a, &signature_a);
+    client.mint_wrap(&user_a, &period, &archetype, &data_hash_for_a, &NEVER_EXPIRES, &signature_a);
 
     // Verify User A has the wrap
     let wrap_a = client.get_wrap(&user_a, &period);
@@ -258,6 +262,7 @@ fn test_signature_cannot_be_stolen_by_another_user() {
         &period_b,
         &archetype,
         &data_hash_for_b,
+        &NEVER_EXPIRES,
         &signature_b,
     );
 
@@ -315,7 +320,7 @@ fn test_cross_contract_replay_protection() {
     );
 
     // Mint successfully on V1
-    client_v1.mint_wrap(&user, &period, &archetype, &data_hash, &signature_v1);
+    client_v1.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &signature_v1);
 
     // Verify the wrap exists on V1
     let wrap_v1 = client_v1.get_wrap(&user, &period);
@@ -333,7 +338,7 @@ fn test_cross_contract_replay_protection() {
         &data_hash,
     );
 
-    client_v2.mint_wrap(&user, &period, &archetype, &data_hash, &signature_v2);
+    client_v2.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &signature_v2);
 
     // Verify both contracts have independent storage
     let wrap_v2 = client_v2.get_wrap(&user, &period);
@@ -385,7 +390,7 @@ fn test_gas_analysis_mint_operation() {
     env.budget().reset_default();
 
     // Perform the mint operation
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &signature);
 
     // Get budget consumption
     env.budget().print();
@@ -453,7 +458,7 @@ fn test_gas_analysis_multiple_mints() {
             &data_hash,
         );
 
-        client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+        client.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &signature);
     }
 
     let cpu_insns = env.budget().cpu_instruction_cost();
@@ -500,7 +505,7 @@ fn test_timestamp_is_from_ledger_not_user() {
         &data_hash,
     );
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &signature);
 
     let wrap = client.get_wrap(&user, &period).unwrap();
 
@@ -523,7 +528,7 @@ fn test_timestamp_is_from_ledger_not_user() {
         &data_hash,
     );
 
-    client.mint_wrap(&user, &period_2, &archetype, &data_hash, &signature_2);
+    client.mint_wrap(&user, &period_2, &archetype, &data_hash, &NEVER_EXPIRES, &signature_2);
 
     let wrap_2 = client.get_wrap(&user, &period_2).unwrap();
     assert_eq!(
@@ -564,7 +569,7 @@ fn test_edge_case_long_symbols() {
         &data_hash,
     );
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &signature);
 
     let wrap = client.get_wrap(&user, &period);
     assert!(wrap.is_some(), "Should handle reasonably long symbols");
@@ -603,7 +608,7 @@ fn test_non_admin_cannot_mint() {
     );
 
     // This should panic because attacker is not authorized
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &signature);
 }
 
 // ─── Degenerate Ed25519 key/signature edge cases ────────────────────────────
@@ -633,7 +638,7 @@ fn test_mint_with_all_zero_pubkey_rejected() {
     let period = 202512u64;
     let signature = BytesN::from_array(&env, &[1u8; 64]);
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &signature);
 }
 
 /// All-ones (0xFF) pubkey — invalid curve point.
@@ -657,7 +662,7 @@ fn test_mint_with_all_ones_pubkey_rejected() {
     let period = 202512u64;
     let signature = BytesN::from_array(&env, &[1u8; 64]);
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &signature);
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &signature);
 }
 
 /// Valid pubkey but all-zero signature.
@@ -682,7 +687,7 @@ fn test_mint_with_all_zero_signature_rejected() {
     let period = 202512u64;
     let zero_sig = BytesN::from_array(&env, &[0u8; 64]);
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &zero_sig);
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &zero_sig);
 }
 
 /// Valid pubkey but all-ones (0xFF) signature.
@@ -707,7 +712,7 @@ fn test_mint_with_all_ones_signature_rejected() {
     let period = 202512u64;
     let ones_sig = BytesN::from_array(&env, &[0xff; 64]);
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &ones_sig);
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &ones_sig);
 }
 
 /// Valid pubkey but single-bit tampered signature.
@@ -744,5 +749,5 @@ fn test_mint_with_tampered_signature_rejected() {
     sig_bytes[0] ^= 0x01;
     let tampered_sig = BytesN::from_array(&env, &sig_bytes);
 
-    client.mint_wrap(&user, &period, &archetype, &data_hash, &tampered_sig);
+    client.mint_wrap(&user, &period, &archetype, &data_hash, &NEVER_EXPIRES, &tampered_sig);
 }
