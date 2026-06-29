@@ -2081,3 +2081,125 @@ fn test_archetype_count_revoke_at_zero_does_not_underflow() {
     client.revoke_wrap(&user, &2026);
     assert_eq!(client.get_archetype_count(&archetype), 0);
 }
+
+// ─── Issue #71: migrate_wrap wallet migration tests ───────────────────────
+
+#[test]
+fn test_migrate_wrap_moves_record_with_dual_auth() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[100u8; 32]);
+    let admin_pubkey = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+    let admin = Address::generate(&env);
+    let old_user = Address::generate(&env);
+    let new_user = Address::generate(&env);
+
+    client.initialize(&admin, &admin_pubkey);
+    env.mock_all_auths();
+
+    let period = 2026u64;
+    let archetype = symbol_short!("arch");
+    let hash = BytesN::from_array(&env, &[101u8; 32]);
+    let sig = sign_payload(
+        &env,
+        &signing_key,
+        &contract_id,
+        &old_user,
+        period,
+        &archetype,
+        &hash,
+    );
+    client.mint_wrap(&old_user, &period, &archetype, &hash, &sig, &None);
+    assert_eq!(client.balance_of(&old_user), 1);
+
+    client.migrate_wrap(&old_user, &new_user, &period);
+
+    assert!(client.get_wrap(&old_user, &period).is_none());
+    assert_eq!(client.balance_of(&old_user), 0);
+    let migrated = client.get_wrap(&new_user, &period).unwrap();
+    assert_eq!(migrated.data_hash, hash);
+    assert_eq!(client.balance_of(&new_user), 1);
+    assert_eq!(client.get_latest_wrap(&new_user).unwrap().period, period);
+}
+
+#[test]
+#[should_panic]
+fn test_migrate_wrap_requires_dual_auth() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let old_user = Address::generate(&env);
+    let new_user = Address::generate(&env);
+
+    client.initialize(&admin, &BytesN::from_array(&env, &[102u8; 32]));
+
+    env.as_contract(&contract_id, || {
+        let wrap_key = DataKey::Wrap(old_user.clone(), 2026);
+        let record = crate::storage_types::WrapRecordV1 {
+            timestamp: env.ledger().timestamp(),
+            data_hash: BytesN::from_array(&env, &[103u8; 32]),
+            archetype: symbol_short!("arch"),
+            period: 2026,
+        };
+        env.storage().persistent().set(&wrap_key, &record);
+        env.storage()
+            .persistent()
+            .set(&DataKey::WrapCount(old_user.clone()), &1u32);
+    });
+
+    client.migrate_wrap(&old_user, &new_user, &2026);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_migrate_wrap_same_user_fails() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &BytesN::from_array(&env, &[104u8; 32]));
+    env.mock_all_auths();
+
+    client.migrate_wrap(&user, &user, &2026);
+}
+
+#[test]
+fn test_no_generic_transfer_wrap_path_exists() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, StellarWrapContract);
+    let client = StellarWrapContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let stranger = Address::generate(&env);
+
+    client.initialize(&admin, &BytesN::from_array(&env, &[105u8; 32]));
+
+    env.as_contract(&contract_id, || {
+        let wrap_key = DataKey::Wrap(owner.clone(), 2026);
+        let record = crate::storage_types::WrapRecordV1 {
+            timestamp: env.ledger().timestamp(),
+            data_hash: BytesN::from_array(&env, &[106u8; 32]),
+            archetype: symbol_short!("arch"),
+            period: 2026,
+        };
+        env.storage().persistent().set(&wrap_key, &record);
+        env.storage()
+            .persistent()
+            .set(&DataKey::WrapCount(owner.clone()), &1u32);
+    });
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        client.migrate_wrap(&owner, &stranger, &2026);
+    }));
+    assert!(result.is_err());
+    assert!(client.get_wrap(&owner, &2026).is_some());
+    assert!(client.get_wrap(&stranger, &2026).is_none());
+}
