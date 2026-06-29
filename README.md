@@ -166,6 +166,10 @@ flowchart TD
     classDef error fill:#fff3bf,stroke:#f59f00,color:#000
 ```
 
+### Wallet migration (exception)
+
+Wraps are soulbound and there is **no** generic `transfer_wrap` function for peer-to-peer transfers. The only supported migration path is `migrate_wrap(old_user, new_user, period)`, which requires authorization from **both** the old and new wallet addresses. This is intended for legitimate cases such as a user losing access to a wallet and consenting to move their record to a new address.
+
 ---
 
 ## 🎯 Key Metrics Tracked

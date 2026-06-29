@@ -130,11 +130,15 @@ pub enum DataKey {
     MerkleClaimed(Address, u64),
     /// User privacy opt-out flag (persistent)
     UserOptOut(Address),
+    /// Registered delegate address → Ed25519 public key for mint signatures
+    Delegate(Address),
+    /// Ordered list of registered delegate addresses (instance storage)
+    DelegateList,
+    /// Global count of wraps minted with this archetype
+    ArchetypeCount(Symbol),
 }
 
 /// Current schema version written by `initialize()` and advanced by `migrate()`.
 pub const SCHEMA_VERSION: u32 = 1;
 /// Target schema version after v1 → v2 migration (`image_uri` field).
 pub const SCHEMA_VERSION_V2: u32 = 2;
-/// Target schema version after v2 → v3 migration (`metadata` field).
-pub const SCHEMA_VERSION_V3: u32 = 3;

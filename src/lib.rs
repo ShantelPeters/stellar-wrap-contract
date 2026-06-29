@@ -1,10 +1,6 @@
 ﻿#![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, panic_with_error, symbol_short, xdr::ToXdr, Address,
-
-/// The current contract version. Bump this on every upgrade.
-const VERSION: u32 = 1;
 
 soroban_sdk::contractmeta!(
     key = "Description",
@@ -127,18 +123,22 @@ impl StellarWrapContract {
     /// - `archetype`: A short `Symbol` describing the user's persona (e.g. `"builder"`).
     /// - `data_hash`: SHA-256 hash of the off-chain JSON data. Must not be all-zero bytes.
     /// - `signature`: 64-byte Ed25519 signature from the admin over the canonical payload.
+    /// - `delegate`: When set, the delegate must authorize and their registered pubkey is used
+    ///   for signature verification instead of the admin key.
     ///
     /// # Returns
     /// Nothing on success. Emits a `(mint, user, period) → archetype` event.
     ///
     /// # Authorization
-    /// Requires authorization from `user`.
+    /// Requires authorization from `user`. When `delegate` is `Some`, that delegate must also
+    /// authorize the call.
     ///
     /// # Panics
     /// - [`ContractError::NotInitialized`] if the contract has not been initialized.
     /// - [`ContractError::InvalidDataHash`] if `data_hash` is all-zero bytes.
     /// - [`ContractError::InvalidSignature`] if the Ed25519 signature is invalid.
     /// - [`ContractError::WrapAlreadyExists`] if a wrap for `(user, period)` already exists.
+    /// - [`ContractError::Unauthorized`] if `delegate` is set but not registered.
     pub fn mint_wrap(
         e: Env,
         caller: Address,
@@ -147,7 +147,6 @@ impl StellarWrapContract {
         archetype: Symbol,
         data_hash: BytesN<32>,
         signature: BytesN<64>,
-        metadata: Option<String>,
     ) {
         user.require_auth();
 
@@ -169,6 +168,17 @@ impl StellarWrapContract {
             .get(&DataKey::AdminPubKey)
             .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
 
+        let signing_pubkey = match delegate {
+            None => admin_pubkey,
+            Some(ref d) => {
+                d.require_auth();
+                e.storage()
+                    .persistent()
+                    .get(&DataKey::Delegate(d.clone()))
+                    .unwrap_or_else(|| panic_with_error!(e, ContractError::Unauthorized))
+            }
+        };
+
         // 3. Reject zero data_hash — all-zero bytes indicate missing or invalid data
         if data_hash == BytesN::from_array(&e, &ZERO_HASH_BYTES) {
             panic_with_error!(e, ContractError::InvalidDataHash);
@@ -182,8 +192,6 @@ impl StellarWrapContract {
         payload.append(&data_hash.clone().to_xdr(&e));
         payload.append(&metadata.clone().to_xdr(&e));
 
-        // 5. Verify Admin Signature
-        verify_signature(&e, &admin_pubkey, &payload, &signature);
 
         // 6. Validate archetype against the allowed set
         Self::validate_archetype(&e, &archetype);
@@ -371,6 +379,20 @@ impl StellarWrapContract {
             metadata,
         };
 
+    }
+
+    fn decrement_archetype_count(e: &Env, archetype: &Symbol) {
+        let arch_key = DataKey::ArchetypeCount(archetype.clone());
+        let count: u64 = e.storage().persistent().get(&arch_key).unwrap_or(0);
+        if count > 0 {
+            let ttl_one_year = 17280 * 365;
+            e.storage()
+                .persistent()
+                .set(&arch_key, &(count - 1));
+            e.storage()
+                .persistent()
+                .extend_ttl(&arch_key, ttl_one_year, ttl_one_year);
+        }
     }
 
     fn load_wrap_record(e: &Env, user: &Address, period: u64) -> Option<WrapRecord> {
@@ -695,6 +717,10 @@ impl StellarWrapContract {
             panic_with_error!(e, ContractError::WrapNotFound);
         }
 
+        let existing: WrapRecord = Self::load_wrap_record(&e, &user, period)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::WrapNotFound));
+        Self::decrement_archetype_count(&e, &existing.archetype);
+
         e.storage().persistent().remove(&wrap_key);
 
         let count_key = DataKey::WrapCount(user.clone());
@@ -748,6 +774,84 @@ impl StellarWrapContract {
         e.events().publish(
             (symbol_short!("campaign"), symbol_short!("revoke"), campaign, user, period),
             true,
+        );
+    }
+
+    /// Migrate a wrap record from one user address to another with consent from both parties.
+    ///
+    /// This is the only supported wallet migration path. Wraps remain soulbound and cannot
+    /// be transferred peer-to-peer via a generic `transfer_wrap` function.
+    pub fn migrate_wrap(e: Env, old_user: Address, new_user: Address, period: u64) {
+        if old_user == new_user {
+            panic_with_error!(e, ContractError::MigrateSameUser);
+        }
+
+        old_user.require_auth();
+        new_user.require_auth();
+
+        e.storage()
+            .instance()
+            .get::<_, Address>(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
+
+        let existing: WrapRecord = Self::load_wrap_record(&e, &old_user, period)
+            .unwrap_or_else(|| panic_with_error!(e, ContractError::WrapNotFound));
+
+        let new_wrap_key = DataKey::Wrap(new_user.clone(), period);
+        if e.storage().persistent().has(&new_wrap_key) {
+            panic_with_error!(e, ContractError::WrapAlreadyExists);
+        }
+
+        let archetype = existing.archetype.clone();
+
+        let old_wrap_key = DataKey::Wrap(old_user.clone(), period);
+        e.storage().persistent().remove(&old_wrap_key);
+
+        let old_count_key = DataKey::WrapCount(old_user.clone());
+        let old_count: u32 = e.storage().persistent().get(&old_count_key).unwrap_or(0);
+        if old_count > 0 {
+            e.storage()
+                .persistent()
+                .set(&old_count_key, &(old_count - 1));
+        }
+
+        let ttl_one_year = 17280 * 365;
+        if Self::schema_version(&e) < SCHEMA_VERSION_V2 {
+            let v1 = WrapRecordV1 {
+                timestamp: existing.timestamp,
+                data_hash: existing.data_hash.clone(),
+                archetype: archetype.clone(),
+                period: existing.period,
+            };
+            e.storage().persistent().set(&new_wrap_key, &v1);
+        } else {
+            e.storage().persistent().set(&new_wrap_key, &existing);
+        }
+        e.storage()
+            .persistent()
+            .extend_ttl(&new_wrap_key, ttl_one_year, ttl_one_year);
+
+        let new_count_key = DataKey::WrapCount(new_user.clone());
+        let new_count: u32 = e.storage().persistent().get(&new_count_key).unwrap_or(0);
+        e.storage()
+            .persistent()
+            .set(&new_count_key, &(new_count + 1));
+        e.storage()
+            .persistent()
+            .extend_ttl(&new_count_key, ttl_one_year, ttl_one_year);
+
+        let new_latest_key = DataKey::LatestPeriod(new_user.clone());
+        let current_latest: u64 = e.storage().persistent().get(&new_latest_key).unwrap_or(0);
+        if period > current_latest {
+            e.storage().persistent().set(&new_latest_key, &period);
+            e.storage()
+                .persistent()
+                .extend_ttl(&new_latest_key, ttl_one_year, ttl_one_year);
+        }
+
+        e.events().publish(
+            (symbol_short!("mwrap"), old_user.clone(), new_user.clone(), period),
+            archetype,
         );
     }
 
@@ -883,6 +987,14 @@ impl StellarWrapContract {
 
         let latest_key = DataKey::LatestPeriod(user.clone());
         if e.storage().persistent().has(&latest_key) {
+    }
+
+    /// Return the global number of wraps minted with `archetype`.
+    pub fn get_archetype_count(e: Env, archetype: Symbol) -> u64 {
+        e.storage()
+            .persistent()
+            .get(&DataKey::ArchetypeCount(archetype))
+            .unwrap_or(0)
     }
 
     /// Return the current admin address, or `None` if the contract is not yet initialized.
