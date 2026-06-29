@@ -33,8 +33,6 @@ pub enum ContractError {
     InvalidSignature = 6,
     /// `data_hash` is all-zero bytes, which indicates missing or invalid data. (code 7)
     InvalidDataHash = 7,
-}
-
 #[contract]
 pub struct StellarWrapContract;
 
@@ -160,6 +158,9 @@ impl StellarWrapContract {
             panic_with_error!(e, ContractError::Unauthorized);
         }
         e.storage().temporary().set(&guard_key, &true);
+
+        // 1c. Validate archetype format
+        Self::validate_archetype(&e, &archetype);
 
         // 2. Verify initialization
         let admin_pubkey: BytesN<32> = e
@@ -327,6 +328,9 @@ impl StellarWrapContract {
         }
         e.storage().temporary().set(&guard_key, &true);
 
+        // Validate archetype format
+        Self::validate_archetype(&e, &archetype);
+
         e.storage()
             .instance()
             .get::<_, Address>(&DataKey::Admin)
@@ -486,6 +490,9 @@ impl StellarWrapContract {
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(e, ContractError::NotInitialized));
         admin.require_auth();
+
+        // Validate archetype format
+        Self::validate_archetype(&e, &new_archetype);
 
         let admin_pubkey: BytesN<32> = e
             .storage()
