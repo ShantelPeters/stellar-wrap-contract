@@ -7,10 +7,6 @@ use soroban_sdk::{
 
 mod merkle;
 mod storage_types;
-use merkle::{compute_merkle_leaf, verify_merkle_proof};
-use storage_types::{
-    ContractInfo, DataKey, WrapRecord, WrapRecordV1, SCHEMA_VERSION, SCHEMA_VERSION_V2,
-};
 
 soroban_sdk::contractmeta!(
     key = "Description",
@@ -732,10 +728,6 @@ impl StellarWrapContract {
     /// # Returns
     /// `Some(WrapRecord)` if a record exists, `None` otherwise.
     pub fn get_wrap(e: Env, user: Address, period: u64) -> Option<WrapRecord> {
-        if Self::user_is_opted_out(&e, &user) {
-            return None;
-        }
-        Self::load_wrap_record(&e, &user, period)
     }
 
     /// Return the total number of wrap records minted for a user (their SBT balance).
