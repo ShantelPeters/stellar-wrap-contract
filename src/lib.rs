@@ -62,15 +62,35 @@ impl StellarWrapContract {
 
     /// Replace the current admin with a new address.
     ///
+    /// Updates the privileged admin address stored in instance storage.
+    ///
     /// # Parameters
     /// - `new_admin`: The `Address` that will become the new admin.
     ///
     /// # Authorization
     /// Requires authorization from the **current** admin.
     ///
+    /// # Returns
+    /// Nothing on success.
+    ///
     /// # Panics
     /// - [`ContractError::NotInitialized`] if the contract has not been initialized.
+    /// - Soroban auth panics if the current admin did not authorize.
+    ///
+    /// # Errors
+    /// This function can surface [`ContractError::NotInitialized`] (code 2).
+    ///
+    /// # Examples
+    /// Update admin from a Soroban client.
+    ///
+    /// ```ignore
+    /// // JavaScript / TypeScript client pattern (pseudo-code)
+    /// // const client = new StellarWrapContractClient(contractId);
+    /// // currentAdminAuths();
+    /// // await client.update_admin({ new_admin: nextAdmin });
+    /// ```
     pub fn update_admin(e: Env, new_admin: Address) {
+
         let current_admin: Address = e
             .storage()
             .instance()
