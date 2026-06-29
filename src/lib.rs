@@ -139,6 +139,9 @@ impl StellarWrapContract {
     /// - [`ContractError::InvalidExpiry`] if `expires_at` is set but not in the future.
     /// - [`ContractError::InvalidSignature`] if the Ed25519 signature is invalid.
     /// - [`ContractError::WrapAlreadyExists`] if a wrap for `(user, period)` already exists.
+    // mint_wrap intentionally covers one complete, sequential flow (auth → verify → store → emit).
+    // Splitting it would obscure the security-critical ordering of steps.
+    #[allow(clippy::too_many_lines)]
     pub fn mint_wrap(
         e: Env,
         caller: Address,
@@ -768,24 +771,12 @@ impl StellarWrapContract {
     /// has not been initialized.
     pub fn balance_of(e: Env, id: Address) -> u32 {
         let count_key = DataKey::WrapCount(id);
-        e.storage()
+        // u32 fits entirely in i128 — no truncation or sign loss is possible.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let balance = e
+            .storage()
             .persistent()
             .get::<_, u32>(&count_key)
-    }
-
-    /// Compute the SHA-256 hash of raw wrap data bytes.
-    ///
-    /// This is the canonical hashing scheme used by `mint_wrap` and `verify_data`:
-    /// `SHA-256(raw_json_bytes)` with no envelope, prefix, or encoding wrapper.
-    ///
-    /// # Parameters
-    /// - `data`: Raw bytes (typically UTF-8 JSON) to hash.
-    ///
-    /// # Returns
-    /// The 32-byte SHA-256 digest.
-    pub fn compute_data_hash(e: Env, data: Bytes) -> BytesN<32> {
-        let hash = e.crypto().sha256(&data);
-        BytesN::from_array(&e, &hash.to_array())
     }
 
     /// Verify that the SHA-256 hash of `data` matches the `data_hash` stored in a wrap record.
